@@ -16,7 +16,12 @@ package-lock.json
 Thumbs.db
 
 # Logs
-*.log
+logs/
+tests/.test-data/
+
+# keep placeholders tracked
+!logs/.gitkeep
+!tests/.test-data/.gitkeep
 
 # Environment
 .env
@@ -34,3 +39,8 @@ coverage/
 # Misc
 *.bak
 *.tmp
+nul
+
+# Agent continuation state
+.sisyphus/
+

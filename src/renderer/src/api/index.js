@@ -16,7 +16,10 @@ api.interceptors.response.use(
 export default {
   auth: {
     login: (username, password) => api.post('/auth/login', { username, password }),
-    updatePassword: (newPassword) => api.post('/auth/update-password', { newPassword })
+    updatePassword: (newPassword) => {
+      const userId = localStorage.getItem('userId')
+      return api.post('/auth/update-password', { userId, newPassword })
+    }
   },
 
   customer: {
@@ -26,7 +29,15 @@ export default {
     update: (data) => api.put(`/customers/${data.id}`, data),
     delete: (id) => api.delete(`/customers/${id}`),
     search: (keyword) => api.get('/customers/search', { params: { keyword } }),
-    stats: () => api.get('/customers/stats')
+    stats: () => api.get('/customers/stats'),
+    getTags: (id) => api.get(`/customers/${id}/tags`),
+    updateTags: (id, tag_ids) => {
+      let clean = tag_ids
+      if (tag_ids && typeof tag_ids === 'object' && !Array.isArray(tag_ids) && 'tag_ids' in tag_ids) {
+        clean = tag_ids.tag_ids
+      }
+      return api.put(`/customers/${id}/tags`, { tag_ids: clean })
+    }
   },
 
   product: {
@@ -42,7 +53,15 @@ export default {
     create: (data) => api.post('/orders', data),
     update: (id, data) => api.put(`/orders/${id}`, data),
     updateStatus: (id, status, operator) => api.put(`/orders/${id}`, { status, operator }),
-    stats: () => api.get('/orders/stats')
+    stats: () => api.get('/orders/stats'),
+    getTags: (id) => api.get(`/orders/${id}/tags`),
+    updateTags: (id, tag_ids) => {
+      let clean = tag_ids
+      if (tag_ids && typeof tag_ids === 'object' && !Array.isArray(tag_ids) && 'tag_ids' in tag_ids) {
+        clean = tag_ids.tag_ids
+      }
+      return api.put(`/orders/${id}/tags`, { tag_ids: clean })
+    }
   },
 
   stats: {
@@ -68,7 +87,20 @@ export default {
     }
   },
 
+  tags: {
+    list: (params) => api.get('/tags', { params }),
+    create: (data) => api.post('/tags', data),
+    update: (id, data) => api.put(`/tags/${id}`, data),
+    delete: (id) => api.delete(`/tags/${id}`)
+  },
+
   app: {
     info: () => api.get('/app/info')
+  },
+
+  data: {
+    export: () => api.post('/data/export'),
+    backup: () => api.post('/data/backup'),
+    clearCache: () => api.delete('/data/clear-cache')
   }
 }

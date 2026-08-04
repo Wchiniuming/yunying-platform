@@ -77,7 +77,6 @@
               <div class="stat-value">{{ stats.pendingOrders }}</div>
               <div class="stat-label">待处理</div>
             </div>
-            <div v-if="stats.pendingOrders > 0" class="stat-badge">{{ stats.pendingOrders }}</div>
           </div>
 
           <div class="stat-card stat-card--customers">
@@ -147,6 +146,7 @@
             <div class="chart-card">
               <div class="chart-header">
                 <h3 class="chart-title">订单状态分布</h3>
+                <span class="chart-total">共 {{ statusDistTotal }} 单</span>
               </div>
               <div v-loading="chartsLoading.distribution" class="chart-body">
                 <div ref="statusDistRef" class="chart-container chart-container--donut"></div>
@@ -255,13 +255,13 @@
             </div>
             <div class="quick-stat-divider"></div>
             <div class="quick-stat-item">
-              <span class="quick-stat-label">平均送达</span>
-              <span class="quick-stat-value">32 分钟</span>
+              <span class="quick-stat-label">待收款</span>
+              <span class="quick-stat-value">{{ stats.todayUnpaidOrders }} 单</span>
             </div>
             <div class="quick-stat-divider"></div>
             <div class="quick-stat-item">
-              <span class="quick-stat-label">好评率</span>
-              <span class="quick-stat-value quick-stat-value--highlight">98.5%</span>
+              <span class="quick-stat-label">新客占比</span>
+              <span class="quick-stat-value">{{ stats.firstOrderRate }}%</span>
             </div>
           </div>
         </div>
@@ -290,7 +290,10 @@ const stats = reactive({
   todayAvgOrder: 0,
   pendingOrders: 0,
   newCustomers: 0,
-  recentOrders: []
+  recentOrders: [],
+  todayUnpaidOrders: 0,
+  todayFirstOrders: 0,
+  firstOrderRate: '0.0'
 })
 
 // ─── Time Range ───────────────────────────────────────────────────────────────
@@ -330,6 +333,7 @@ const chartsLoading = reactive({
 // ─── Chart Data ───────────────────────────────────────────────────────────────
 const trendsData = reactive({ dates: [], orders: [], revenue: [] })
 const statusDistData = reactive([])
+const statusDistTotal = ref(0)
 const productsRankingData = reactive([])
 const hourlyDistData = reactive([])
 const priceDistData = reactive([])
@@ -526,6 +530,10 @@ function initStatusDist() {
   statusDistChart = echarts.init(statusDistRef.value)
 
   const total = statusDistData.reduce((s, d) => s + d.count, 0)
+  statusDistTotal.value = total
+  const isDark = document.documentElement.dataset.theme === 'dark'
+  const textColor = isDark ? '#F5F5F4' : '#292524'
+  const mutedColor = isDark ? '#A8A8A8' : '#78716C'
 
   const option = {
     tooltip: {
@@ -570,29 +578,6 @@ function initStatusDist() {
         itemStyle: { shadowBlur: 6, shadowOffsetX: 0, shadowColor: 'rgba(0,0,0,0.1)' }
       }
     }],
-    graphic: [{
-      type: 'text',
-      left: '34%',
-      top: '44%',
-      style: {
-        text: String(total),
-        fill: colors.text,
-        fontSize: 18,
-        fontWeight: 700,
-        textAlign: 'center'
-      }
-    }, {
-      type: 'text',
-      left: '34%',
-      top: '56%',
-      style: {
-        text: '总订单',
-        fill: colors.textMuted,
-        fontSize: 10,
-        textAlign: 'center'
-      }
-    }],
-    graphic: [],
     animation: true
   }
   statusDistChart.setOption(option)
@@ -634,7 +619,7 @@ function initProductsRanking() {
       axisLine: { show: false },
       axisTick: { show: false },
       axisLabel: {
-        color: colors.text,
+        color: colors.textMuted,
         fontSize: 10,
         width: 88,
         overflow: 'truncate'
@@ -1215,6 +1200,13 @@ onUnmounted(() => {
   font-weight: 500;
 }
 
+.chart-total {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary);
+  letter-spacing: 0.3px;
+}
+
 .chart-body {
   position: relative;
   padding: 6px 0 2px;
@@ -1535,6 +1527,7 @@ onUnmounted(() => {
 [data-theme="dark"] .page-title,
 [data-theme="dark"] .section-title,
 [data-theme="dark"] .chart-title,
+[data-theme="dark"] .chart-total,
 [data-theme="dark"] .recent-orders-title,
 [data-theme="dark"] .quick-stats-title {
   color: var(--text);

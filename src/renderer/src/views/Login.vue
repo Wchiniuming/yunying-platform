@@ -49,10 +49,6 @@
           </el-button>
         </el-form-item>
       </el-form>
-
-      <div class="login-footer">
-        <p>默认账号: admin / 密码: admin123</p>
-      </div>
     </div>
   </div>
 </template>
@@ -90,6 +86,7 @@ const handleLogin = async () => {
       if (result.code === 200) {
         localStorage.setItem('token', 'logged-in')
         localStorage.setItem('username', result.data.username)
+        if (result.data.id) localStorage.setItem('userId', String(result.data.id))
         router.push('/')
       } else {
         ElMessage.error(result.message || '登录失败')
@@ -226,17 +223,6 @@ const handleLogin = async () => {
 .login-button:active {
   transform: translateY(0);
   box-shadow: 0 2px 8px -2px rgba(232, 93, 4, 0.4);
-}
-
-.login-footer {
-  margin-top: 24px;
-  text-align: center;
-}
-
-.login-footer p {
-  font-size: 12px;
-  color: var(--text-muted);
-  transition: color var(--transition-base) var(--ease-smooth);
 }
 
 [data-theme="dark"] .login-container {

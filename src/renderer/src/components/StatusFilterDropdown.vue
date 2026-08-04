@@ -10,6 +10,21 @@
         {{ selectedLabel }}
       </span>
       <svg
+        v-if="modelValue !== ''"
+        class="status-filter__clear"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        @click.stop="clearValue"
+      >
+        <line x1="18" y1="6" x2="6" y2="18"/>
+        <line x1="6" y1="6" x2="18" y2="18"/>
+      </svg>
+      <svg
+        v-else
         class="status-filter__arrow"
         :class="{ 'is-open': isOpen }"
         viewBox="0 0 24 24"
@@ -97,6 +112,12 @@ function selectOption(option) {
   isOpen.value = false
 }
 
+function clearValue() {
+  emit('update:modelValue', '')
+  emit('change', '')
+  isOpen.value = false
+}
+
 function handleClickOutside(event) {
   if (containerRef.value && !containerRef.value.contains(event.target)) {
     isOpen.value = false
@@ -164,6 +185,19 @@ onUnmounted(() => {
 
 .status-filter__arrow.is-open {
   transform: rotate(180deg);
+}
+
+.status-filter__clear {
+  width: 14px;
+  height: 14px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: color 0.12s;
+}
+
+.status-filter__clear:hover {
+  color: var(--text);
 }
 
 .status-filter__panel {

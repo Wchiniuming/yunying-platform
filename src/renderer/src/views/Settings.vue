@@ -101,7 +101,7 @@ const handleUpdatePassword = async () => {
     return
   }
   try {
-    const result = await api.auth.updatePassword({ newPassword: accountForm.newPassword })
+    const result = await api.auth.updatePassword(accountForm.newPassword)
     if (result.code === 200) {
       ElMessage.success('密码修改成功')
       accountForm.newPassword = ''
@@ -121,7 +121,7 @@ const handleExportData = async () => {
       cancelButtonText: '取消',
       type: 'info'
     })
-    const result = await window.electronAPI.data.export()
+    const result = await api.data.export()
     if (result.code === 200) {
       ElMessage.success(`数据已导出至: ${result.data.path}`)
     } else {
@@ -132,7 +132,7 @@ const handleExportData = async () => {
 
 const handleBackup = async () => {
   try {
-    const result = await window.electronAPI.data.backup()
+    const result = await api.data.backup()
     if (result.code === 200) {
       ElMessage.success(`备份已创建: ${result.data.path}`)
     } else {
@@ -150,7 +150,7 @@ const handleClearCache = async () => {
       cancelButtonText: '取消',
       type: 'warning'
     })
-    const result = await window.electronAPI.data.clearCache()
+    const result = await api.data.clearCache()
     if (result.code === 200) {
       ElMessage.success('缓存已清除')
     } else {

@@ -121,7 +121,7 @@
 
     <div class="table-container">
       <el-table :data="customers" v-loading="loading" stripe class="table">
-        <el-table-column prop="wechat_nickname" label="顾客" min-width="200">
+        <el-table-column prop="wechat_nickname" label="顾客" min-width="140">
           <template #default="{ row }">
             <div class="customer-name">
               <div class="avatar-circle avatar-circle-sm">{{ (row.wechat_nickname || '?').charAt(0) }}</div>
@@ -135,6 +135,28 @@
             <span class="status-tag" :class="getLevelClass(row.customer_level)">
               {{ getLevelLabel(row.customer_level) }}
             </span>
+          </template>
+        </el-table-column>
+
+        <el-table-column label="标签" width="160" align="left">
+          <template #default="{ row }">
+            <div class="customer-tags-cell">
+              <template v-for="tag in (row.tags || [])" :key="tag.id">
+                <span
+                  class="customer-tag-chip"
+                  :style="{ background: tag.color + '22', color: tag.color, borderColor: tag.color + '44' }"
+                >
+                  {{ tag.name }}
+                </span>
+              </template>
+              <el-tooltip
+                v-if="row.tags && row.tags.length > 2"
+                placement="top"
+                :content="row.tags.map(t => t.name).join('、')"
+              >
+                <span class="customer-tag-more">+{{ row.tags.length - 2 }}</span>
+              </el-tooltip>
+            </div>
           </template>
         </el-table-column>
 
@@ -154,7 +176,7 @@
 
         <el-table-column prop="total_spent" label="累计消费" width="120" align="right">
           <template #default="{ row }">
-            <span class="amount">¥{{ row.total_spent || 0 }}</span>
+            <span class="amount">¥{{ Number(row.total_spent || 0).toFixed(2) }}</span>
           </template>
         </el-table-column>
 
@@ -238,6 +260,41 @@
         <el-form-item label="备注">
           <el-input v-model="customerForm.remark" type="textarea" :rows="2" placeholder="备注信息" />
         </el-form-item>
+
+        <el-form-item label="标签">
+          <div class="tag-compact-wrap">
+            <div
+              v-for="(group, gIdx) in groupedTags"
+              :key="group.key"
+              class="tag-compact-group"
+              :class="{ 'tag-compact-group--separated': gIdx > 0 }"
+            >
+              <div class="tag-compact-group__header">
+                <span class="tag-compact-group__label">{{ group.label }}</span>
+                <div class="tag-compact-group__items">
+                  <button
+                    v-for="tag in group.tags"
+                    :key="tag.id"
+                    type="button"
+                    class="tag-dot-btn"
+                    :class="{ active: selectedTagIds.includes(tag.id) }"
+                    :style="selectedTagIds.includes(tag.id)
+                      ? { color: tag.color }
+                      : {}"
+                    @click="toggleTag(tag.id)"
+                  >
+                    <span
+                      class="tag-dot"
+                      :class="{ visible: selectedTagIds.includes(tag.id) }"
+                      :style="selectedTagIds.includes(tag.id) ? { background: tag.color } : {}"
+                    ></span>
+                    {{ tag.name }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-form-item>
       </el-form>
 
       <template #footer>
@@ -249,7 +306,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Search, UserFilled } from '@element-plus/icons-vue'
@@ -261,6 +318,26 @@ const router = useRouter()
 const customers = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
+const allCustomerTags = ref([])
+const selectedTagIds = ref([])
+
+const TAG_CATEGORIES = [
+  { key: 'source', label: '来源' },
+  { key: 'order', label: '订单' },
+  { key: 'other', label: '其他' }
+]
+
+const groupedTags = computed(() => {
+  const map = {}
+  TAG_CATEGORIES.forEach(c => { map[c.key] = [] })
+  allCustomerTags.value.forEach(tag => {
+    if (map[tag.category]) map[tag.category].push(tag)
+  })
+  return TAG_CATEGORIES.filter(c => map[c.key].length > 0).map(c => ({
+    ...c,
+    tags: map[c.key]
+  }))
+})
 const dialogMode = ref('add')
 const formRef = ref()
 
@@ -311,7 +388,20 @@ const getLevelLabel = (level) => {
 }
 
 const rules = {
-  wechat_nickname: [{ required: true, message: '请输入昵称', trigger: 'blur' }]
+  wechat_nickname: [{ required: true, message: '请输入昵称', trigger: 'blur' }],
+  phone: [
+    { required: true, message: '请输入电话', trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (value && !/^1[3-9]\d{9}$/.test(value.trim())) {
+          callback(new Error('手机号格式不正确'))
+        } else {
+          callback()
+        }
+      },
+      trigger: 'blur'
+    }
+  ]
 }
 
 let searchTimer = null
@@ -360,7 +450,6 @@ const loadCustomers = async () => {
 const loadStats = async () => {
   try {
     const result = await api.customer.stats()
-    console.log('[DEBUG] customers/stats response:', result)
     if (result.code === 200) {
       Object.assign(stats, result.data)
     }
@@ -369,7 +458,26 @@ const loadStats = async () => {
   }
 }
 
-const handleAddCustomer = () => {
+function toggleTag(tagId) {
+  const idx = selectedTagIds.value.indexOf(tagId)
+  if (idx === -1) {
+    selectedTagIds.value.push(tagId)
+  } else {
+    selectedTagIds.value.splice(idx, 1)
+  }
+}
+
+async function loadCustomerTags() {
+  try {
+    const res = await api.tags.list()
+    if (res.code === 200) {
+      // 只显示未删除的分类（source/order/other）
+      allCustomerTags.value = res.data.filter(t => ['source', 'order', 'other'].includes(t.category))
+    }
+  } catch {}
+}
+
+const handleAddCustomer = async () => {
   dialogMode.value = 'add'
   Object.assign(customerForm, {
     id: null,
@@ -379,11 +487,14 @@ const handleAddCustomer = () => {
     remark: '',
     customer_level: 'normal'
   })
+  selectedTagIds.value = []
+  await loadCustomerTags()
   dialogVisible.value = true
 }
 
-const handleEditCustomer = (row) => {
+const handleEditCustomer = async (row) => {
   dialogMode.value = 'edit'
+  selectedTagIds.value = []
   Object.assign(customerForm, {
     id: row.id,
     wechat_nickname: row.wechat_nickname || '',
@@ -392,6 +503,13 @@ const handleEditCustomer = (row) => {
     remark: row.remark || '',
     customer_level: row.customer_level || 'normal'
   })
+  await loadCustomerTags()
+  try {
+    const res = await api.customer.getTags(row.id)
+    if (res.code === 200) {
+      selectedTagIds.value = res.data.map(t => t.id)
+    }
+  } catch {}
   dialogVisible.value = true
 }
 
@@ -401,9 +519,10 @@ const handleSaveCustomer = async () => {
     if (!valid) return
 
     try {
+      const payload = { ...customerForm, tag_ids: selectedTagIds.value }
       const result = dialogMode.value === 'add'
-        ? await api.customer.create(customerForm)
-        : await api.customer.update({ id: customerForm.id, ...customerForm })
+        ? await api.customer.create(payload)
+        : await api.customer.update({ id: customerForm.id, ...payload })
 
       if (result.code === 200) {
         ElMessage.success(dialogMode.value === 'add' ? '添加成功' : '更新成功')
@@ -724,5 +843,112 @@ onMounted(() => {
 .level-pill .level-icon {
   width: 14px;
   height: 14px;
+}
+
+.tag-compact-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.tag-compact-group {
+  width: 100%;
+}
+
+.tag-compact-group--separated {
+  border-top: 1px solid var(--border-light);
+  margin-top: 6px;
+  padding-top: 6px;
+}
+
+.tag-compact-group__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.tag-compact-group__label {
+  font-size: 10px;
+  color: var(--text-muted);
+  min-width: 40px;
+  padding-top: 3px;
+  text-align: right;
+  flex-shrink: 0;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 600;
+  opacity: 0.7;
+}
+
+.tag-compact-group__items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.tag-dot-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px 2px 5px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 450;
+  letter-spacing: 0.01em;
+  border: none;
+  background: none;
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.12s, background 0.12s;
+  color: var(--text-secondary);
+  line-height: 1.7;
+}
+
+.tag-dot-btn:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.tag-dot-btn.active {
+  font-weight: 500;
+}
+
+.tag-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: transparent;
+  flex-shrink: 0;
+  transition: background 0.12s;
+}
+
+.tag-dot.visible {
+  background: currentColor;
+  opacity: 0.8;
+}
+
+.customer-tags-cell {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  line-height: 1;
+}
+
+.customer-tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 6px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 500;
+  border: 1px solid;
+  white-space: nowrap;
+}
+
+.customer-tag-more {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
 }
 </style>

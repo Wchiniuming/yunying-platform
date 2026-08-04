@@ -63,6 +63,30 @@
           <el-card class="card mt-4">
             <template #header>
               <div class="card-header">
+                <el-icon><PriceTag /></el-icon>
+                <span>顾客标签</span>
+                <el-button size="small" type="primary" plain class="ml-auto" @click="openTagDialog">
+                  管理标签
+                </el-button>
+              </div>
+            </template>
+
+            <div class="tags-display" v-if="customer.tags && customer.tags.length > 0">
+              <span
+                v-for="tag in customer.tags"
+                :key="tag.id"
+                class="tag-chip"
+                :style="{ background: tag.color + '22', color: tag.color, borderColor: tag.color + '44' }"
+              >
+                {{ tag.name }}
+              </span>
+            </div>
+            <div v-else class="text-muted" style="font-size:13px">暂无标签，点击"管理标签"添加</div>
+          </el-card>
+
+          <el-card class="card mt-4">
+            <template #header>
+              <div class="card-header">
                 <el-icon><TrendCharts /></el-icon>
                 <span>消费统计</span>
               </div>
@@ -74,7 +98,7 @@
                 <div class="stat-label">订单数</div>
               </div>
               <div class="stat-card">
-                <div class="stat-value">¥{{ customer.total_spent || 0 }}</div>
+                <div class="stat-value">¥{{ Number(customer.total_spent || 0).toFixed(2) }}</div>
                 <div class="stat-label">累计消费</div>
               </div>
               <div class="stat-card">
@@ -174,6 +198,32 @@
         <el-button type="primary" @click="handleSave">保存</el-button>
       </template>
     </el-dialog>
+
+    <el-dialog v-model="showTagDialog" title="管理顾客标签" width="480px" :close-on-click-modal="false">
+      <div class="tag-dialog-body">
+        <p class="tag-dialog-tip">勾选该顾客的标签</p>
+        <el-checkbox-group v-model="selectedTagIds" class="tag-checkbox-group">
+          <el-checkbox
+            v-for="tag in allTags"
+            :key="tag.id"
+            :value="tag.id"
+            :label="tag.id"
+            class="tag-checkbox-item"
+          >
+            <span
+              class="tag-chip"
+              :style="{ background: tag.color + '22', color: tag.color, borderColor: tag.color + '44' }"
+            >
+              {{ tag.name }}
+            </span>
+          </el-checkbox>
+        </el-checkbox-group>
+      </div>
+      <template #footer>
+        <el-button @click="showTagDialog = false">取消</el-button>
+        <el-button type="primary" @click="handleSaveTags" :loading="tagSaving">保存</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -181,7 +231,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { ArrowLeft, User, Edit, Document, Clock, TrendCharts } from '@element-plus/icons-vue'
+import { ArrowLeft, User, Edit, Document, Clock, TrendCharts, PriceTag } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import api from '@/api'
 
@@ -192,6 +242,11 @@ const customer = ref(null)
 const loading = ref(false)
 const dialogVisible = ref(false)
 const formRef = ref()
+
+const showTagDialog = ref(false)
+const allTags = ref([])
+const selectedTagIds = ref([])
+const tagSaving = ref(false)
 
 const customerForm = reactive({
   wechat_nickname: '',
@@ -302,7 +357,8 @@ const handleSave = async () => {
     try {
       const result = await api.customer.update({
         id: customer.value.id,
-        ...customerForm
+        ...customerForm,
+        tag_ids: selectedTagIds.value
       })
 
       if (result.code === 200) {
@@ -316,6 +372,37 @@ const handleSave = async () => {
       ElMessage.error('更新失败')
     }
   })
+}
+
+async function openTagDialog() {
+  try {
+    const res = await api.tags.list()
+    if (res.code === 200) {
+      allTags.value = res.data
+    }
+    selectedTagIds.value = (customer.value.tags || []).map(t => t.id)
+    showTagDialog.value = true
+  } catch (e) {
+    ElMessage.error('加载标签失败')
+  }
+}
+
+async function handleSaveTags() {
+  tagSaving.value = true
+  try {
+    const res = await api.customer.updateTags(customer.value.id, selectedTagIds.value)
+    if (res.code === 200) {
+      customer.value.tags = res.data
+      ElMessage.success('标签已更新')
+      showTagDialog.value = false
+    } else {
+      ElMessage.error(res.message || '保存失败')
+    }
+  } catch (e) {
+    ElMessage.error('保存失败')
+  } finally {
+    tagSaving.value = false
+  }
 }
 
 onMounted(() => {
@@ -393,6 +480,11 @@ onMounted(() => {
 .card-header .el-icon {
   font-size: 18px;
   color: var(--primary);
+}
+
+.card-header .ml-auto {
+  margin-left: auto;
+  font-weight: 400;
 }
 
 .info-grid {
@@ -543,5 +635,41 @@ onMounted(() => {
   .order-item:hover {
     background: var(--border);
   }
+}
+
+.tags-display {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  border: 1px solid;
+}
+
+.tag-dialog-body {
+  padding: 4px 0;
+}
+
+.tag-dialog-tip {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0 0 14px;
+}
+
+.tag-checkbox-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tag-checkbox-item {
+  margin-right: 0;
 }
 </style>

@@ -336,7 +336,6 @@ const formatMoney = (value) => {
 const loadOrderStats = async () => {
   try {
     const result = await api.order.stats()
-    console.log('[DEBUG] orders/stats response:', result)
     if (result.code === 200) {
       Object.assign(orderStats, result.data || {})
     }

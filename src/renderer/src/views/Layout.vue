@@ -20,7 +20,6 @@
         <button class="nav-item" :class="{ active: activeMenu === '/orders' }" @click="handleMenuSelect('/orders')">
           <span class="nav-icon"><Document /></span>
           <span class="nav-label">订单管理</span>
-          <span class="nav-badge">3</span>
         </button>
 
         <button class="nav-item" :class="{ active: activeMenu === '/customers' }" @click="handleMenuSelect('/customers')">
@@ -31,6 +30,11 @@
         <button class="nav-item" :class="{ active: activeMenu === '/products' }" @click="handleMenuSelect('/products')">
           <span class="nav-icon"><Goods /></span>
           <span class="nav-label">商品管理</span>
+        </button>
+
+        <button class="nav-item" :class="{ active: activeMenu === '/tags' }" @click="handleMenuSelect('/tags')">
+          <span class="nav-icon"><PriceTag /></span>
+          <span class="nav-label">标签管理</span>
         </button>
 
         <button class="nav-item" :class="{ active: activeMenu === '/delivery' }" @click="handleMenuSelect('/delivery')">
@@ -106,7 +110,8 @@ import {
   Van,
   Setting,
   Fold,
-  Expand
+  Expand,
+  PriceTag
 } from '@element-plus/icons-vue'
 
 const router = useRouter()

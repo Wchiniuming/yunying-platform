@@ -2,16 +2,18 @@ import express from 'express'
 import cors from 'cors'
 import path from 'path'
 import { fileURLToPath } from 'url'
-import Database from 'better-sqlite3'
+import { DatabaseSync } from 'node:sqlite'
 import fs from 'fs'
 import crypto from 'crypto'
+import pkg from 'xlsx'
+const { utils, writeFile } = pkg
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 
 // 应用配置
 const userDataPath = process.env.APPDATA || path.join(process.env.HOME || '', '.huangxiaoshuai')
-const dbPath = path.join(userDataPath, 'data', 'huangxiaoshuai.db')
+const dbPath = process.env.DB_PATH || path.join(userDataPath, 'data', 'huangxiaoshuai.db')
 
 // 确保数据目录存在
 const dataDir = path.join(userDataPath, 'data')
@@ -26,7 +28,7 @@ let db
 
 function initDatabase() {
   try {
-    db = new Database(dbPath)
+    db = new DatabaseSync(dbPath)
     console.log('黄小帅麻辣鸡数据库连接成功')
     initTables()
     return true
@@ -80,7 +82,7 @@ function initTables() {
       actual_pickup TEXT,
       actual_delivery TEXT,
       delivery_notes TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
+      status TEXT NOT NULL DEFAULT 'preparing',
       payment_status TEXT NOT NULL DEFAULT 'paid',
       payment_method TEXT,
       source TEXT NOT NULL,
@@ -116,6 +118,14 @@ function initTables() {
     )
   `)
 
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS order_tags (
+      order_id INTEGER NOT NULL,
+      tag_id INTEGER NOT NULL,
+      PRIMARY KEY (order_id, tag_id)
+    )
+  `)
+
   // 菜品表
   db.exec(`
     CREATE TABLE IF NOT EXISTS dishes (
@@ -145,6 +155,12 @@ function initTables() {
     )
   `)
 
+  // 兼容旧库：补齐 action 列（已存在则忽略）
+  const orderStatusLogCols = db.prepare("PRAGMA table_info(order_status_log)").all()
+  if (!orderStatusLogCols.some(c => c.name === 'action')) {
+    db.exec(`ALTER TABLE order_status_log ADD COLUMN action TEXT`)
+  }
+
   // 用户表
   db.exec(`
     CREATE TABLE IF NOT EXISTS users (
@@ -170,7 +186,6 @@ function initTables() {
   // 初始化默认用户 (密码: admin123)
   const userCount = db.prepare('SELECT COUNT(*) as count FROM users').get()
   if (userCount.count === 0) {
-    // 简单哈希，实际生产应该用bcrypt
     const passwordHash = crypto.createHash('sha256').update('admin123').digest('hex')
     db.prepare(`INSERT INTO users (username, password, real_name, role) VALUES (?, ?, ?, ?)`).run(
       'admin',
@@ -179,6 +194,8 @@ function initTables() {
       'admin'
     )
   }
+
+  if (process.env.DISABLE_SEED === '1') return
 
   // 初始化预置标签
   const tagCount = db.prepare('SELECT COUNT(*) as count FROM tags').get()
@@ -228,107 +245,6 @@ function initTables() {
     }
   }
 
-  // 初始化示例数据
-  const orderCount = db.prepare('SELECT COUNT(*) as count FROM orders').get()
-  if (orderCount.count === 0) {
-    // 示例顾客
-    const customers = [
-      ['张三', '13812340001', '朝阳区建国路88号1号楼1501', '老板很好，订单多'],
-      ['李四', '13812340002', '海淀区中关村大街1号', '常客，点单准时'],
-      ['王五', '13812340003', '东城区王府井大街138号', '新顾客，第一次下单'],
-      ['赵六', '13812340004', '西城区金融大街1号', 'VIP客户'],
-      ['钱七', '13812340005', '丰台区南三环西路88号', '每次都点微辣'],
-      ['孙八', '13812340006', '石景山区石景山路88号', '投诉过一次，介意'],
-      ['周九', '13812340007', '通州区新华大街1号', '朋友推荐来的'],
-      ['吴十', '13812340008', '昌平区回龙观西大街88号', '自取订单多'],
-      ['郑一', '13812340009', '大兴区亦庄经济开发区1号', '公司团建订单'],
-      ['王二', '13812340010', '顺义区天竺大街1号', '深夜单多']
-    ]
-    const insertCustomer = db.prepare(`
-      INSERT INTO customers (wechat_nickname, phone, default_address, notes, source, total_orders, total_spent, last_order_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now', '-' || ? || ' days'))
-    `)
-    const customerIds = []
-    for (let i = 0; i < customers.length; i++) {
-      const c = customers[i]
-      const orders = Math.floor(Math.random() * 15) + 1
-      const spent = orders * (60 + Math.random() * 80)
-      const daysAgo = Math.floor(Math.random() * 30)
-      const result = insertCustomer.run(c[0], c[1], c[2], c[3],
-        i < 5 ? '微信群' : i < 8 ? '朋友圈' : '朋友推荐',
-        orders, spent.toFixed(2), daysAgo)
-      customerIds.push(result.lastInsertRowid)
-    }
-
-    // 示例订单
-    const statuses = ['pending', 'preparing', 'waiting_pickup', 'delivering', 'delivered', 'completed', 'cancelled']
-    const deliveryMethods = ['self', 'sf']
-    const paymentMethods = ['wechat', 'alipay', 'cash']
-    const dishes = [
-      { name: '麻辣鸡腿堡', price: 28 },
-      { name: '麻辣鸡翅', price: 18 },
-      { name: '香辣鸡腿堡', price: 26 },
-      { name: '薯条(大)', price: 12 },
-      { name: '薯条(小)', price: 8 },
-      { name: '可乐(大)', price: 10 },
-      { name: '可乐(小)', price: 6 },
-      { name: '麻辣鸡块', price: 22 },
-      { name: '黄金蝴蝶虾', price: 24 },
-      { name: '原味鸡块', price: 20 }
-    ]
-
-    const insertOrder = db.prepare(`
-      INSERT INTO orders (order_no, customer_id, wechat_nickname, phone, delivery_address,
-        items_json, order_total, delivery_method, sf_waybill_no, status, payment_status, payment_method, source, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now', '-' || ? || ' hours'))
-    `)
-
-    const insertStatusLog = db.prepare(`
-      INSERT INTO order_status_log (order_id, old_status, new_status, operator, operate_time, remark)
-      VALUES (?, ?, ?, ?, datetime('now', '-' || ? || ' hours'), ?)
-    `)
-
-    for (let i = 0; i < 25; i++) {
-      const customerId = customerIds[Math.floor(Math.random() * customerIds.length)]
-      const customer = db.prepare('SELECT * FROM customers WHERE id = ?').get(customerId)
-      const status = statuses[Math.floor(Math.random() * statuses.length)]
-      const deliveryMethod = deliveryMethods[Math.floor(Math.random() * deliveryMethods.length)]
-      const paymentMethod = paymentMethods[Math.floor(Math.random() * paymentMethods.length)]
-
-      // 随机选择1-4个菜品
-      const itemCount = Math.floor(Math.random() * 4) + 1
-      const selectedDishes = []
-      let total = 0
-      for (let j = 0; j < itemCount; j++) {
-        const dish = dishes[Math.floor(Math.random() * dishes.length)]
-        const qty = Math.floor(Math.random() * 3) + 1
-        selectedDishes.push({ name: dish.name, price: dish.price, qty })
-        total += dish.price * qty
-      }
-
-      const orderNo = `MJ${new Date().toISOString().slice(0, 10).replace(/-/g, '')}${String(i + 1).padStart(3, '0')}`
-      const hoursAgo = Math.floor(Math.random() * 72)
-      const sfWaybill = deliveryMethod === 'sf' ? `SF${Date.now()}${Math.floor(Math.random() * 1000)}` : null
-
-      const result = insertOrder.run(
-        orderNo, customerId, customer.wechat_nickname, customer.phone, customer.default_address,
-        JSON.stringify(selectedDishes), total.toFixed(2), deliveryMethod, sfWaybill,
-        status, 'paid', paymentMethod, 'wechat', hoursAgo
-      )
-
-      const orderId = result.lastInsertRowid
-
-      // 插入状态日志
-      const statusFlow = ['pending', 'preparing', 'waiting_pickup', 'delivering', 'delivered']
-      const currentIndex = statusFlow.indexOf(status)
-      if (currentIndex >= 0) {
-        for (let s = 0; s <= currentIndex; s++) {
-          insertStatusLog.run(orderId, s === 0 ? null : statusFlow[s-1], statusFlow[s], 'system', hoursAgo + (currentIndex - s) * 0.5, s === currentIndex ? '当前状态' : null)
-        }
-      }
-    }
-  }
-
   console.log('黄小帅麻辣鸡数据库表初始化完成')
 }
 
@@ -340,9 +256,38 @@ function generateOrderNo() {
   return `MJ${dateStr}${random}`
 }
 
+const ORDER_STATUS_TEXT = {
+  pending: '待接单',
+  preparing: '制作中',
+  waiting_pickup: '待取餐',
+  delivering: '配送中',
+  delivered: '已送达',
+  completed: '已完成',
+  cancelled: '已取消'
+}
+
+function getStatusText(status) {
+  return ORDER_STATUS_TEXT[status] || status || '-'
+}
+
+function buildStatusActionText(oldStatus, newStatus) {
+  if (!oldStatus) return `订单创建：${getStatusText(newStatus)}`
+  return `${getStatusText(oldStatus)} → ${getStatusText(newStatus)}`
+}
+
 // API 响应格式化
 function apiResponse(code, data, message) {
   return { code, data, message }
+}
+
+function parseIntSafe(v, fallback) {
+  const n = parseInt(v, 10)
+  return Number.isFinite(n) ? n : fallback
+}
+
+function parseFloatSafe(v, fallback) {
+  const n = parseFloat(v)
+  return Number.isFinite(n) ? n : fallback
 }
 
 // 创建 Express 应用
@@ -358,6 +303,9 @@ app.use(express.static(path.join(__dirname, '../dist')))
 app.post('/api/auth/login', (req, res) => {
   try {
     const { username, password } = req.body
+    if (!username || !password) {
+      return res.json(apiResponse(401, null, '用户名或密码错误'))
+    }
     const passwordHash = crypto.createHash('sha256').update(password).digest('hex')
     const user = db.prepare('SELECT * FROM users WHERE username = ? AND password = ? AND status = ?').get(username, passwordHash, 'active')
 
@@ -382,15 +330,103 @@ app.post('/api/auth/login', (req, res) => {
 
 app.post('/api/auth/update-password', (req, res) => {
   try {
-    const { newPassword } = req.body
-    if (!newPassword) {
-      return res.json(apiResponse(400, null, '密码不能为空'))
+    const { userId, newPassword } = req.body
+    if (!userId) {
+      return res.json(apiResponse(400, null, '用户ID不能为空'))
+    }
+    if (!newPassword || String(newPassword).length < 6) {
+      return res.json(apiResponse(400, null, '密码不能少于6位'))
     }
     const passwordHash = crypto.createHash('sha256').update(newPassword).digest('hex')
-    db.prepare('UPDATE users SET password = ?').run(passwordHash)
+    const result = db.prepare('UPDATE users SET password = ? WHERE id = ?').run(passwordHash, userId)
+    if (result.changes === 0) {
+      return res.json(apiResponse(404, null, '用户不存在'))
+    }
     res.json(apiResponse(200, null, '密码修改成功'))
   } catch (error) {
+    console.error('修改密码失败:', error)
     res.json(apiResponse(500, null, '修改失败'))
+  }
+})
+
+// ========== 标签管理 ==========
+
+app.get('/api/tags', (req, res) => {
+  try {
+    const { category, keyword } = req.query
+    let sql = `
+      SELECT t.*, COUNT(ct.customer_id) as usage_count
+      FROM tags t
+      LEFT JOIN customer_tags ct ON ct.tag_id = t.id
+    `
+    const params = []
+    const conditions = []
+    if (category) {
+      conditions.push('t.category = ?')
+      params.push(category)
+    }
+    if (keyword) {
+      conditions.push('t.name LIKE ?')
+      params.push(`%${keyword}%`)
+    }
+    if (conditions.length > 0) {
+      sql += ' WHERE ' + conditions.join(' AND ')
+    }
+    sql += ' GROUP BY t.id ORDER BY t.sort_order ASC, t.id ASC'
+    const list = db.prepare(sql).all(...params)
+    res.json(apiResponse(200, list))
+  } catch (error) {
+    console.error('获取标签失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+app.post('/api/tags', (req, res) => {
+  try {
+    const { name, color, category, sort_order } = req.body
+    if (!name || !category) {
+      return res.json(apiResponse(400, null, '名称和分类不能为空'))
+    }
+    const stmt = db.prepare('INSERT INTO tags (name, color, category, sort_order) VALUES (?, ?, ?, ?)')
+    const result = stmt.run(name, color || '#409EFF', category, sort_order || 0)
+    res.json(apiResponse(200, { id: result.lastInsertRowid }, '创建成功'))
+  } catch (error) {
+    if (error.message.includes('UNIQUE')) {
+      return res.json(apiResponse(409, null, '该标签已存在'))
+    }
+    console.error('创建标签失败:', error)
+    res.json(apiResponse(500, null, '创建失败'))
+  }
+})
+
+app.put('/api/tags/:id', (req, res) => {
+  try {
+    const { name, color, category, sort_order } = req.body
+    const existing = db.prepare('SELECT id FROM tags WHERE id = ?').get(req.params.id)
+    if (!existing) {
+      return res.json(apiResponse(404, null, '标签不存在'))
+    }
+    db.prepare('UPDATE tags SET name = ?, color = ?, category = ?, sort_order = ? WHERE id = ?')
+      .run(name, color, category, sort_order || 0, req.params.id)
+    res.json(apiResponse(200, null, '更新成功'))
+  } catch (error) {
+    console.error('更新标签失败:', error)
+    res.json(apiResponse(500, null, '更新失败'))
+  }
+})
+
+app.delete('/api/tags/:id', (req, res) => {
+  try {
+    const existing = db.prepare('SELECT id FROM tags WHERE id = ?').get(req.params.id)
+    if (!existing) {
+      return res.json(apiResponse(404, null, '标签不存在'))
+    }
+    db.prepare('DELETE FROM customer_tags WHERE tag_id = ?').run(req.params.id)
+    db.prepare('DELETE FROM tags WHERE id = ?').run(req.params.id)
+    res.json(apiResponse(200, null, '删除成功'))
+  } catch (error) {
+    console.error('删除标签失败:', error)
+    res.json(apiResponse(500, null, '删除失败'))
   }
 })
 
@@ -398,8 +434,10 @@ app.post('/api/auth/update-password', (req, res) => {
 
 app.get('/api/customers', (req, res) => {
   try {
-    const { page = 1, pageSize = 20, keyword = '', orderCount = '' } = req.query
-    const offset = (page - 1) * pageSize
+    const { keyword = '', orderCount = '' } = req.query
+    const pageNum = parseIntSafe(req.query.page, 1)
+    const sizeNum = parseIntSafe(req.query.pageSize, 20)
+    const offset = (pageNum - 1) * sizeNum
 
     let sql = 'SELECT * FROM customers WHERE deleted = 0'
     let countSql = 'SELECT COUNT(*) as total FROM customers WHERE deleted = 0'
@@ -412,10 +450,26 @@ app.get('/api/customers', (req, res) => {
     }
 
     sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
-    params.push(parseInt(pageSize), offset)
+    params.push(sizeNum, offset)
 
     const list = db.prepare(sql).all(...params)
     const { total } = db.prepare(countSql).get(...(keyword ? [`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`] : []))
+
+    // 批量加载顾客标签
+    const customerIds = list.map(c => c.id)
+    let tagsMap = {}
+    if (customerIds.length > 0) {
+      const placeholders = customerIds.map(() => '?').join(',')
+      const allTags = db.prepare(`
+        SELECT ct.customer_id, t.* FROM tags t
+        JOIN customer_tags ct ON ct.tag_id = t.id
+        WHERE ct.customer_id IN (${placeholders})
+      `).all(...customerIds)
+      allTags.forEach(t => {
+        if (!tagsMap[t.customer_id]) tagsMap[t.customer_id] = []
+        tagsMap[t.customer_id].push({ id: t.id, name: t.name, color: t.color, category: t.category })
+      })
+    }
 
     const enrichedList = list.map(c => ({
       ...c,
@@ -423,7 +477,8 @@ app.get('/api/customers', (req, res) => {
       remark: c.notes || '',
       order_count: c.total_orders || 0,
       last_order_at: c.last_order_date || null,
-      customer_level: c.customer_level || 'normal'
+      customer_level: c.customer_level || 'normal',
+      tags: tagsMap[c.id] || []
     }))
 
     res.json(apiResponse(200, { list: enrichedList, total }))
@@ -460,89 +515,12 @@ app.get('/api/customers/stats', (req, res) => {
   }
 })
 
-app.get('/api/customers/:id', (req, res) => {
-  try {
-    const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND deleted = 0').get(req.params.id)
-    if (!customer) {
-      return res.json(apiResponse(404, null, '顾客不存在'))
-    }
-
-    const recentOrders = db.prepare('SELECT id, order_no, order_total, status, created_at FROM orders WHERE customer_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT 5').all(req.params.id)
-
-    res.json(apiResponse(200, {
-      ...customer,
-      address: customer.default_address || '',
-      remark: customer.notes || '',
-      order_count: customer.total_orders || 0,
-      last_order_at: customer.last_order_date || null,
-      recent_orders: recentOrders.map(o => ({
-        ...o,
-        items: (() => { try { return JSON.parse(o.items_json || '[]') } catch { return [] } })(),
-        sf_tracking_no: o.sf_waybill_no || o.sf_tracking_no
-      }))
-    }))
-  } catch (error) {
-    res.json(apiResponse(500, null, '获取失败'))
-  }
-})
-
-app.post('/api/customers', (req, res) => {
-  try {
-    const { wechat_nickname, phone, address, remark, customer_level, source } = req.body
-    const result = db.prepare(`
-      INSERT INTO customers (wechat_nickname, phone, default_address, notes, customer_level, source)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(
-      wechat_nickname,
-      phone || '',
-      address || '',
-      remark || '',
-      customer_level || 'normal',
-      source || '微信群'
-    )
-
-    res.json(apiResponse(200, { id: result.lastInsertRowid }, '添加成功'))
-  } catch (error) {
-    console.error('添加顾客失败:', error)
-    res.json(apiResponse(500, null, '添加失败'))
-  }
-})
-
-app.put('/api/customers/:id', (req, res) => {
-  try {
-    const { wechat_nickname, phone, address, remark, customer_level, source } = req.body
-    db.prepare(`
-      UPDATE customers SET wechat_nickname = ?, phone = ?, default_address = ?, notes = ?,
-      customer_level = ?, source = ?, updated_at = datetime('now')
-      WHERE id = ?
-    `).run(
-      wechat_nickname,
-      phone || '',
-      address || '',
-      remark || '',
-      customer_level || 'normal',
-      source || '微信群',
-      req.params.id
-    )
-
-    res.json(apiResponse(200, null, '更新成功'))
-  } catch (error) {
-    res.json(apiResponse(500, null, '更新失败'))
-  }
-})
-
-app.delete('/api/customers/:id', (req, res) => {
-  try {
-    db.prepare('UPDATE customers SET deleted = 1 WHERE id = ?').run(req.params.id)
-    res.json(apiResponse(200, null, '删除成功'))
-  } catch (error) {
-    res.json(apiResponse(500, null, '删除失败'))
-  }
-})
-
 app.get('/api/customers/search', (req, res) => {
   try {
     const { keyword } = req.query
+    if (keyword === undefined) {
+      return res.json(apiResponse(200, []))
+    }
     const list = db.prepare(`
       SELECT * FROM customers WHERE deleted = 0
       AND (wechat_nickname LIKE ? OR phone LIKE ?)
@@ -562,12 +540,191 @@ app.get('/api/customers/search', (req, res) => {
   }
 })
 
+app.get('/api/customers/:id', (req, res) => {
+  try {
+    const customer = db.prepare('SELECT * FROM customers WHERE id = ? AND deleted = 0').get(req.params.id)
+    if (!customer) {
+      return res.json(apiResponse(404, null, '顾客不存在'))
+    }
+
+    const recentOrders = db.prepare('SELECT id, order_no, order_total, status, created_at FROM orders WHERE customer_id = ? AND deleted = 0 ORDER BY created_at DESC LIMIT 5').all(req.params.id)
+    const customerTags = db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN customer_tags ct ON ct.tag_id = t.id
+      WHERE ct.customer_id = ?
+    `).all(req.params.id)
+
+    res.json(apiResponse(200, {
+      ...customer,
+      address: customer.default_address || '',
+      remark: customer.notes || '',
+      order_count: customer.total_orders || 0,
+      last_order_at: customer.last_order_date || null,
+      tags: customerTags,
+      recent_orders: recentOrders.map(o => ({
+        ...o,
+        items: (() => { try { return JSON.parse(o.items_json || '[]') } catch { return [] } })(),
+        sf_tracking_no: o.sf_waybill_no || o.sf_tracking_no
+      }))
+    }))
+  } catch (error) {
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+app.post('/api/customers', (req, res) => {
+  try {
+    const { wechat_nickname, phone, address, remark, customer_level, source, tag_ids } = req.body
+    if (!wechat_nickname || !String(wechat_nickname).trim()) {
+      return res.json(apiResponse(400, null, '顾客昵称不能为空'))
+    }
+    if (phone && !/^[\d\-\+\s]{0,20}$/.test(String(phone))) {
+      return res.json(apiResponse(400, null, '手机号格式不正确'))
+    }
+    const result = db.prepare(`
+      INSERT INTO customers (wechat_nickname, phone, default_address, notes, customer_level, source)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      String(wechat_nickname).trim(),
+      phone || '',
+      address || '',
+      remark || '',
+      customer_level || 'normal',
+      source || '微信群'
+    )
+
+    const customerId = result.lastInsertRowid
+    if (Array.isArray(tag_ids) && tag_ids.length > 0) {
+      const insertTag = db.prepare('INSERT OR IGNORE INTO customer_tags (customer_id, tag_id) VALUES (?, ?)')
+      for (const tagId of tag_ids) {
+        insertTag.run(customerId, tagId)
+      }
+    }
+
+    res.json(apiResponse(200, { id: customerId }, '添加成功'))
+  } catch (error) {
+    console.error('添加顾客失败:', error)
+    res.json(apiResponse(500, null, '添加失败'))
+  }
+})
+
+app.put('/api/customers/:id', (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id, NaN)
+    if (!Number.isFinite(id)) {
+      return res.json(apiResponse(400, null, '无效的顾客ID'))
+    }
+    const { wechat_nickname, phone, address, remark, customer_level, source, tag_ids } = req.body
+    if (!wechat_nickname || !String(wechat_nickname).trim()) {
+      return res.json(apiResponse(400, null, '顾客昵称不能为空'))
+    }
+    if (phone && !/^[\d\-\+\s]{0,20}$/.test(String(phone))) {
+      return res.json(apiResponse(400, null, '手机号格式不正确'))
+    }
+    const result = db.prepare(`
+      UPDATE customers SET wechat_nickname = ?, phone = ?, default_address = ?, notes = ?,
+      customer_level = ?, source = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      String(wechat_nickname).trim(),
+      phone || '',
+      address || '',
+      remark || '',
+      customer_level || 'normal',
+      source || '微信群',
+      id
+    )
+    if (result.changes === 0) {
+      return res.json(apiResponse(404, null, '顾客不存在'))
+    }
+
+    if (Array.isArray(tag_ids)) {
+      db.prepare('DELETE FROM customer_tags WHERE customer_id = ?').run(id)
+      const insertTag = db.prepare('INSERT OR IGNORE INTO customer_tags (customer_id, tag_id) VALUES (?, ?)')
+      for (const tagId of tag_ids) {
+        insertTag.run(id, tagId)
+      }
+    }
+
+    res.json(apiResponse(200, null, '更新成功'))
+  } catch (error) {
+    res.json(apiResponse(500, null, '更新失败'))
+  }
+})
+
+app.delete('/api/customers/:id', (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id, NaN)
+    if (!Number.isFinite(id)) {
+      return res.json(apiResponse(400, null, '无效的顾客ID'))
+    }
+    const orderCount = db.prepare('SELECT COUNT(*) as c FROM orders WHERE customer_id = ? AND deleted = 0').get(id).c
+    if (orderCount > 0) {
+      return res.json(apiResponse(409, null, `该顾客有 ${orderCount} 个未删除订单，无法删除`))
+    }
+    const result = db.prepare('UPDATE customers SET deleted = 1 WHERE id = ? AND deleted = 0').run(id)
+    if (result.changes === 0) {
+      return res.json(apiResponse(404, null, '顾客不存在'))
+    }
+    res.json(apiResponse(200, null, '删除成功'))
+  } catch (error) {
+    res.json(apiResponse(500, null, '删除失败'))
+  }
+})
+
+app.get('/api/customers/:id/tags', (req, res) => {
+  try {
+    const customer = db.prepare('SELECT id FROM customers WHERE id = ? AND deleted = 0').get(req.params.id)
+    if (!customer) {
+      return res.json(apiResponse(404, null, '顾客不存在'))
+    }
+    const tags = db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN customer_tags ct ON ct.tag_id = t.id
+      WHERE ct.customer_id = ?
+    `).all(req.params.id)
+    res.json(apiResponse(200, tags))
+  } catch (error) {
+    console.error('获取顾客标签失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+app.put('/api/customers/:id/tags', (req, res) => {
+  try {
+    const customer = db.prepare('SELECT id FROM customers WHERE id = ? AND deleted = 0').get(req.params.id)
+    if (!customer) {
+      return res.json(apiResponse(404, null, '顾客不存在'))
+    }
+    const { tag_ids } = req.body
+    if (!Array.isArray(tag_ids)) {
+      return res.json(apiResponse(400, null, 'tag_ids 必须是数组'))
+    }
+    db.prepare('DELETE FROM customer_tags WHERE customer_id = ?').run(req.params.id)
+    const insertStmt = db.prepare('INSERT OR IGNORE INTO customer_tags (customer_id, tag_id) VALUES (?, ?)')
+    for (const tagId of tag_ids) {
+      insertStmt.run(req.params.id, tagId)
+    }
+    const tags = db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN customer_tags ct ON ct.tag_id = t.id
+      WHERE ct.customer_id = ?
+    `).all(req.params.id)
+    res.json(apiResponse(200, tags, '标签已更新'))
+  } catch (error) {
+    console.error('更新顾客标签失败:', error)
+    res.json(apiResponse(500, null, '更新失败'))
+  }
+})
+
 // ========== 订单相关 ==========
 
 app.get('/api/orders', (req, res) => {
   try {
-    const { page = 1, pageSize = 20, status = '', keyword = '', startDate = '', endDate = '', customerId = '' } = req.query
-    const offset = (page - 1) * pageSize
+    const { status = '', keyword = '', startDate = '', endDate = '', customerId = '' } = req.query
+    const pageNum = parseIntSafe(req.query.page, 1)
+    const sizeNum = parseIntSafe(req.query.pageSize, 20)
+    const offset = (pageNum - 1) * sizeNum
 
     let sql = 'SELECT * FROM orders WHERE deleted = 0'
     let countSql = 'SELECT COUNT(*) as total FROM orders WHERE deleted = 0'
@@ -604,7 +761,7 @@ app.get('/api/orders', (req, res) => {
     }
 
     sql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?'
-    params.push(parseInt(pageSize), offset)
+    params.push(sizeNum, offset)
 
     const list = db.prepare(sql).all(...params)
     const countParams = status || keyword || startDate || endDate || customerId
@@ -679,7 +836,12 @@ app.get('/api/orders/:id', (req, res) => {
       return res.json(apiResponse(404, null, '订单不存在'))
     }
 
-    const timeline = db.prepare('SELECT * FROM order_status_log WHERE order_id = ? ORDER BY operate_time ASC').all(req.params.id)
+    const timelineRows = db.prepare('SELECT * FROM order_status_log WHERE order_id = ? ORDER BY operate_time ASC').all(req.params.id)
+    const timeline = timelineRows.map(row => ({
+      ...row,
+      time: row.operate_time,
+      action: row.action || row.remark || buildStatusActionText(row.old_status, row.new_status)
+    }))
 
     let items = []
     try {
@@ -690,6 +852,7 @@ app.get('/api/orders/:id', (req, res) => {
 
     res.json(apiResponse(200, {
       ...order,
+      address: order.delivery_address || '',
       items,
       sf_tracking_no: order.sf_waybill_no || order.sf_tracking_no,
       timeline
@@ -703,35 +866,84 @@ app.post('/api/orders', (req, res) => {
   try {
     const {
       customer_id, wechat_nickname, phone, delivery_address, items,
-      order_total, delivery_method, sf_tracking_no, remark, payment_method, payment_status
+      order_total, delivery_method, sf_tracking_no, remark, payment_method, payment_status, tag_ids
     } = req.body
 
+    let resolvedNickname = wechat_nickname
+    let resolvedCustomerId = customer_id || null
+
+    if (!resolvedNickname || !String(resolvedNickname).trim()) {
+      if (resolvedCustomerId) {
+        const customerRow = db.prepare('SELECT wechat_nickname FROM customers WHERE id = ? AND deleted = 0').get(resolvedCustomerId)
+        if (customerRow) {
+          resolvedNickname = customerRow.wechat_nickname
+        } else {
+          return res.json(apiResponse(400, null, '顾客不存在或已删除'))
+        }
+      } else {
+        return res.json(apiResponse(400, null, '顾客昵称不能为空'))
+      }
+    } else if (!resolvedCustomerId) {
+      // 新顾客：自动入库
+      const newCustomer = db.prepare(`
+        INSERT INTO customers (wechat_nickname, phone, default_address, notes, source, total_orders, total_spent)
+        VALUES (?, ?, ?, ?, ?, 0, 0)
+      `).run(
+        String(resolvedNickname).trim(),
+        phone || '',
+        delivery_address || '',
+        '',
+        '订单创建'
+      )
+      resolvedCustomerId = newCustomer.lastInsertRowid
+    }
+
+    if (!items || !Array.isArray(items) || items.length === 0) {
+      return res.json(apiResponse(400, null, '订单至少包含一件商品'))
+    }
+    const totalNum = parseFloat(order_total)
+    if (!Number.isFinite(totalNum) || totalNum < 0) {
+      return res.json(apiResponse(400, null, '订单金额必须为非负数'))
+    }
+    if (delivery_method && !['self', 'sf'].includes(delivery_method)) {
+      return res.json(apiResponse(400, null, '配送方式无效'))
+    }
+    if (payment_status && !['paid', 'unpaid'].includes(payment_status)) {
+      return res.json(apiResponse(400, null, '支付状态无效'))
+    }
+
     const orderNo = generateOrderNo()
-    const itemsJson = JSON.stringify(items || [])
+    const itemsJson = JSON.stringify(items)
 
     const result = db.prepare(`
       INSERT INTO orders (order_no, customer_id, wechat_nickname, phone, delivery_address,
-        items_json, order_total, delivery_method, sf_waybill_no, notes, payment_method, payment_status, source)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(orderNo, customer_id, wechat_nickname, phone, delivery_address, itemsJson,
-      order_total, delivery_method, sf_tracking_no, remark, payment_method, payment_status, 'wechat')
+        items_json, order_total, delivery_method, sf_waybill_no, notes, payment_method, payment_status, status, source)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(orderNo, resolvedCustomerId, resolvedNickname, phone || '', delivery_address || '', itemsJson,
+      totalNum, delivery_method || 'self', sf_tracking_no || null, remark || '', payment_method || 'wechat', payment_status || 'paid', 'preparing', 'wechat')
 
-    // 更新顾客统计
-    if (customer_id) {
+    if (resolvedCustomerId) {
       db.prepare(`
         UPDATE customers SET total_orders = total_orders + 1, total_spent = total_spent + ?,
         last_order_date = datetime('now'), updated_at = datetime('now')
         WHERE id = ?
-      `).run(order_total, customer_id)
+      `).run(totalNum, resolvedCustomerId)
     }
 
-    // 记录状态日志
     db.prepare(`
-      INSERT INTO order_status_log (order_id, new_status, operator, remark)
-      VALUES (?, 'pending', 'system', '订单创建')
-    `).run(result.lastInsertRowid)
+      INSERT INTO order_status_log (order_id, old_status, new_status, operator, action, remark)
+      VALUES (?, NULL, 'preparing', 'system', ?, '订单创建')
+    `).run(result.lastInsertRowid, buildStatusActionText(null, 'preparing'))
 
-    res.json(apiResponse(200, { id: result.lastInsertRowid, order_no: orderNo }, '订单创建成功'))
+    const orderId = result.lastInsertRowid
+    if (Array.isArray(tag_ids) && tag_ids.length > 0) {
+      const insertTag = db.prepare('INSERT OR IGNORE INTO order_tags (order_id, tag_id) VALUES (?, ?)')
+      for (const tagId of tag_ids) {
+        insertTag.run(orderId, tagId)
+      }
+    }
+
+    res.json(apiResponse(200, { id: orderId, order_no: orderNo }, '订单创建成功'))
   } catch (error) {
     console.error('创建订单失败:', error)
     res.json(apiResponse(500, null, '创建失败'))
@@ -740,27 +952,86 @@ app.post('/api/orders', (req, res) => {
 
 app.put('/api/orders/:id', (req, res) => {
   try {
-    const { status, operator = 'system' } = req.body
-    const order = db.prepare('SELECT status FROM orders WHERE id = ?').get(req.params.id)
+    const { status, operator = 'system', sf_tracking_no } = req.body
 
+    const order = db.prepare('SELECT status FROM orders WHERE id = ? AND deleted = 0').get(req.params.id)
     if (!order) {
       return res.json(apiResponse(404, null, '订单不存在'))
     }
 
-    const oldStatus = order.status
+    if (sf_tracking_no !== undefined) {
+      const newNo = String(sf_tracking_no).trim()
+      db.prepare(`UPDATE orders SET sf_waybill_no = ?, updated_at = datetime('now') WHERE id = ?`).run(newNo || null, req.params.id)
+      return res.json(apiResponse(200, { sf_tracking_no: newNo || null }, '顺丰单号已更新'))
+    }
 
-    db.prepare(`
-      UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?
-    `).run(status, req.params.id)
+    if (status) {
+      if (!ORDER_STATUS_TEXT[status]) {
+        return res.json(apiResponse(400, null, '无效的订单状态'))
+      }
+      const oldStatus = order.status
+      const actionText = buildStatusActionText(oldStatus, status)
+      const remarkText = `状态从 ${getStatusText(oldStatus)} 更新为 ${getStatusText(status)}`
 
-    // 记录状态日志
-    db.prepare(`
-      INSERT INTO order_status_log (order_id, old_status, new_status, operator)
-      VALUES (?, ?, ?, ?)
-    `).run(req.params.id, oldStatus, status, operator)
+      db.prepare(`
+        UPDATE orders SET status = ?, updated_at = datetime('now') WHERE id = ?
+      `).run(status, req.params.id)
 
-    res.json(apiResponse(200, null, '状态更新成功'))
+      db.prepare(`
+        INSERT INTO order_status_log (order_id, old_status, new_status, operator, action, remark)
+        VALUES (?, ?, ?, ?, ?, ?)
+      `).run(req.params.id, oldStatus, status, operator, actionText, remarkText)
+
+      return res.json(apiResponse(200, null, '状态更新成功'))
+    }
+
+    res.json(apiResponse(400, null, '无有效更新字段'))
   } catch (error) {
+    res.json(apiResponse(500, null, '更新失败'))
+  }
+})
+
+app.get('/api/orders/:id/tags', (req, res) => {
+  try {
+    const order = db.prepare('SELECT id FROM orders WHERE id = ? AND deleted = 0').get(req.params.id)
+    if (!order) {
+      return res.json(apiResponse(404, null, '订单不存在'))
+    }
+    const tags = db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN order_tags ot ON ot.tag_id = t.id
+      WHERE ot.order_id = ?
+    `).all(req.params.id)
+    res.json(apiResponse(200, tags))
+  } catch (error) {
+    console.error('获取订单标签失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+app.put('/api/orders/:id/tags', (req, res) => {
+  try {
+    const order = db.prepare('SELECT id FROM orders WHERE id = ? AND deleted = 0').get(req.params.id)
+    if (!order) {
+      return res.json(apiResponse(404, null, '订单不存在'))
+    }
+    const { tag_ids } = req.body
+    if (!Array.isArray(tag_ids)) {
+      return res.json(apiResponse(400, null, 'tag_ids 必须是数组'))
+    }
+    db.prepare('DELETE FROM order_tags WHERE order_id = ?').run(req.params.id)
+    const insertStmt = db.prepare('INSERT OR IGNORE INTO order_tags (order_id, tag_id) VALUES (?, ?)')
+    for (const tagId of tag_ids) {
+      insertStmt.run(req.params.id, tagId)
+    }
+    const tags = db.prepare(`
+      SELECT t.* FROM tags t
+      JOIN order_tags ot ON ot.tag_id = t.id
+      WHERE ot.order_id = ?
+    `).all(req.params.id)
+    res.json(apiResponse(200, tags, '标签已更新'))
+  } catch (error) {
+    console.error('更新订单标签失败:', error)
     res.json(apiResponse(500, null, '更新失败'))
   }
 })
@@ -790,6 +1061,16 @@ app.get('/api/stats/dashboard', (req, res) => {
       SELECT COUNT(*) as count FROM customers WHERE deleted = 0 AND date(created_at) = date('now')
     `).get().count
 
+    const todayUnpaidOrders = db.prepare(`
+      SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND date(created_at) = date('now') AND payment_status = 'unpaid'
+    `).get().count
+
+    const todayFirstOrders = db.prepare(`
+      SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND date(created_at) = date('now') AND is_first_order = 1
+    `).get().count
+
+    const firstOrderRate = todayOrders > 0 ? ((todayFirstOrders / todayOrders) * 100).toFixed(1) : '0.0'
+
     const recentOrders = db.prepare(`
       SELECT id, order_no, wechat_nickname, order_total, status, created_at
       FROM orders WHERE deleted = 0 ORDER BY created_at DESC LIMIT 5
@@ -801,7 +1082,10 @@ app.get('/api/stats/dashboard', (req, res) => {
       todayAvgOrder,
       pendingOrders,
       newCustomers,
-      recentOrders
+      recentOrders,
+      todayUnpaidOrders,
+      todayFirstOrders,
+      firstOrderRate
     }))
   } catch (error) {
     console.error('获取统计数据失败:', error)
@@ -829,7 +1113,7 @@ app.get('/api/delivery/stats', (req, res) => {
 app.get('/api/stats/trends', (req, res) => {
   try {
     const { days = 7 } = req.query
-    const dayNum = parseInt(days) || 7
+    const dayNum = parseIntSafe(days, 7) || 7
     // days=0 表示全量，设置一个很大的值获取所有历史数据
     const dayCount = dayNum === 0 ? 365 * 10 : Math.min(Math.max(dayNum, 1), 90)
 
@@ -885,7 +1169,7 @@ app.get('/api/stats/trends', (req, res) => {
 app.get('/api/stats/distributions', (req, res) => {
   try {
     const { days = 0 } = req.query
-    const dayNum = parseInt(days) || 0
+    const dayNum = parseIntSafe(days, 0)
     const dateFilter = dayNum > 0 ? `AND created_at >= datetime('now', '-${dayNum} days')` : ''
 
     const statusDist = db.prepare(`
@@ -922,8 +1206,8 @@ app.get('/api/stats/distributions', (req, res) => {
 app.get('/api/stats/products/ranking', (req, res) => {
   try {
     const { limit = 10, days = 0 } = req.query
-    const topN = Math.min(Math.max(parseInt(limit) || 10, 1), 50)
-    const dayNum = parseInt(days) || 0
+    const topN = Math.min(Math.max(parseIntSafe(limit, 10), 1), 50)
+    const dayNum = parseIntSafe(days, 0)
     const dateFilter = dayNum > 0 ? `AND created_at >= datetime('now', '-${dayNum} days')` : ''
 
     const orders = db.prepare(`
@@ -968,7 +1252,7 @@ app.get('/api/stats/products/ranking', (req, res) => {
 app.get('/api/stats/hourly', (req, res) => {
   try {
     const { days = 0 } = req.query
-    const dayNum = parseInt(days) || 0
+    const dayNum = parseIntSafe(days, 0)
     const dateFilter = dayNum > 0 ? `AND created_at >= datetime('now', '-${dayNum} days')` : ''
 
     const hourlyDist = db.prepare(`
@@ -1002,7 +1286,7 @@ app.get('/api/stats/hourly', (req, res) => {
 app.get('/api/stats/price-distribution', (req, res) => {
   try {
     const { days = 0 } = req.query
-    const dayNum = parseInt(days) || 0
+    const dayNum = parseIntSafe(days, 0)
     const dateFilter = dayNum > 0 ? `AND created_at >= datetime('now', '-${dayNum} days')` : ''
 
     const priceRanges = [
@@ -1067,18 +1351,23 @@ app.get('/api/products', (req, res) => {
 app.post('/api/products', (req, res) => {
   try {
     const { name, category, price, unit, sort_order, status } = req.body
-    if (!name || !price) {
-      return res.json(apiResponse(400, null, '商品名称和价格不能为空'))
+    if (!name || !String(name).trim()) {
+      return res.json(apiResponse(400, null, '商品名称不能为空'))
     }
+    const priceNum = parseFloat(price)
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      return res.json(apiResponse(400, null, '价格必须为非负数'))
+    }
+    const sortNum = parseIntSafe(sort_order, 0)
     const result = db.prepare(`
       INSERT INTO dishes (name, category, price, specs_json, sort_order, status)
       VALUES (?, ?, ?, ?, ?, ?)
     `).run(
-      name,
+      String(name).trim(),
       category || 'main',
-      parseFloat(price),
+      priceNum,
       JSON.stringify({ unit: unit || '斤' }),
-      parseInt(sort_order || 0),
+      sortNum,
       status || 'available'
     )
     res.json(apiResponse(200, { id: result.lastInsertRowid }))
@@ -1091,19 +1380,26 @@ app.post('/api/products', (req, res) => {
 app.put('/api/products/:id', (req, res) => {
   try {
     const { name, category, price, unit, sort_order, status } = req.body
-    const id = parseInt(req.params.id)
-    if (!name || !price) {
-      return res.json(apiResponse(400, null, '商品名称和价格不能为空'))
+    const id = parseIntSafe(req.params.id, NaN)
+    if (!Number.isFinite(id)) {
+      return res.json(apiResponse(400, null, '无效的商品ID'))
+    }
+    if (!name || !String(name).trim()) {
+      return res.json(apiResponse(400, null, '商品名称不能为空'))
+    }
+    const priceNum = parseFloat(price)
+    if (!Number.isFinite(priceNum) || priceNum < 0) {
+      return res.json(apiResponse(400, null, '价格必须为非负数'))
     }
     const result = db.prepare(`
       UPDATE dishes SET name = ?, category = ?, price = ?, specs_json = ?, sort_order = ?, status = ?, updated_at = datetime('now')
       WHERE id = ?
     `).run(
-      name,
+      String(name).trim(),
       category || 'main',
-      parseFloat(price),
+      priceNum,
       JSON.stringify({ unit: unit || '斤' }),
-      parseInt(sort_order || 0),
+      parseIntSafe(sort_order, 0),
       status || 'available',
       id
     )
@@ -1119,7 +1415,10 @@ app.put('/api/products/:id', (req, res) => {
 
 app.delete('/api/products/:id', (req, res) => {
   try {
-    const id = parseInt(req.params.id)
+    const id = parseIntSafe(req.params.id, NaN)
+    if (!Number.isFinite(id)) {
+      return res.json(apiResponse(400, null, '无效的商品ID'))
+    }
     const result = db.prepare('DELETE FROM dishes WHERE id = ?').run(id)
     if (result.changes === 0) {
       return res.json(apiResponse(404, null, '商品不存在'))
@@ -1147,10 +1446,180 @@ app.get('/api/settings', (req, res) => {
 app.post('/api/settings', (req, res) => {
   try {
     const { key, value } = req.body
-    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, value)
+    if (!key) {
+      return res.json(apiResponse(400, null, 'key 不能为空'))
+    }
+    const stringValue = typeof value === 'string' ? value : JSON.stringify(value)
+    db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(String(key), stringValue)
     res.json(apiResponse(200, null, '保存成功'))
   } catch (error) {
+    console.error('保存设置失败:', error)
     res.json(apiResponse(500, null, '保存失败'))
+  }
+})
+
+
+
+const projectRoot = path.join(__dirname, '..')
+const exportsDir = path.join(projectRoot, 'exports')
+const backupsDir = path.join(projectRoot, 'backups')
+const logsDir = path.join(projectRoot, 'logs')
+
+const ensureDir = (dir) => {
+  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
+}
+
+app.post('/api/data/export', (req, res) => {
+  try {
+    ensureDir(exportsDir)
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const fileName = `黄小帅数据导出_${timestamp}.xlsx`
+    const filePath = path.join(exportsDir, fileName)
+
+    const customers = db.prepare('SELECT * FROM customers WHERE deleted = 0').all()
+    const orders = db.prepare(`
+      SELECT o.*, c.wechat_nickname as customer_nickname
+      FROM orders o
+      LEFT JOIN customers c ON o.customer_id = c.id
+      WHERE o.deleted = 0
+      ORDER BY o.created_at DESC
+    `).all()
+    const dishes = db.prepare('SELECT * FROM dishes ORDER BY sort_order').all()
+    const tags = db.prepare('SELECT * FROM tags').all()
+
+    const orderStatusText = {
+      pending: '待接单', preparing: '制作中', waiting_pickup: '待取餐',
+      delivering: '配送中', delivered: '已送达', completed: '已完成', cancelled: '已取消'
+    }
+    const paymentStatusText = { paid: '已支付', unpaid: '未支付', refunded: '已退款' }
+
+    const customerSheet = customers.map(c => ({
+      '顾客ID': c.id,
+      '昵称': c.wechat_nickname,
+      '备注': c.wechat_remark || '',
+      '电话': c.phone || '',
+      '默认地址': c.default_address || '',
+      '等级': c.customer_level || '',
+      '来源': c.source || '',
+      '累计订单': c.total_orders || 0,
+      '累计消费': c.total_spent || 0,
+      '上次下单': c.last_order_date || '',
+      '备注信息': c.notes || ''
+    }))
+
+    const flatItems = []
+    for (const o of orders) {
+      let items = []
+      try { items = JSON.parse(o.items_json || '[]') } catch {}
+      if (items.length === 0) {
+        flatItems.push({
+          '订单号': o.order_no,
+          '顾客': o.customer_nickname || o.wechat_nickname,
+          '电话': o.phone || '',
+          '地址': o.delivery_address,
+          '商品': '', '单价': '', '数量': '',
+          '总价': o.order_total,
+          '配送方式': o.delivery_method === 'sf' ? '顺丰' : '自取',
+          '订单状态': orderStatusText[o.status] || o.status,
+          '支付状态': paymentStatusText[o.payment_status] || o.payment_status,
+          '支付方式': o.payment_method || '',
+          '下单时间': o.created_at || ''
+        })
+      } else {
+        for (const item of items) {
+          flatItems.push({
+            '订单号': o.order_no,
+            '顾客': o.customer_nickname || o.wechat_nickname,
+            '电话': o.phone || '',
+            '地址': o.delivery_address,
+            '商品': item.name || '',
+            '单价': item.price || '',
+            '数量': item.qty || '',
+            '总价': item.price && item.qty ? (item.price * item.qty).toFixed(2) : '',
+            '配送方式': o.delivery_method === 'sf' ? '顺丰' : '自取',
+            '订单状态': orderStatusText[o.status] || o.status,
+            '支付状态': paymentStatusText[o.payment_status] || o.payment_status,
+            '支付方式': o.payment_method || '',
+            '下单时间': o.created_at || ''
+          })
+        }
+      }
+    }
+
+    const dishSheet = dishes.map(d => ({
+      'ID': d.id,
+      '名称': d.name,
+      '分类': d.category === 'main' ? '主推' : d.category === 'side' ? '小食' : d.category,
+      '价格': d.price,
+      '排序': d.sort_order || 0
+    }))
+
+    const tagSheet = tags.map(t => ({
+      'ID': t.id,
+      '名称': t.name,
+      '颜色': t.color || '',
+      '排序': t.sort_order || 0
+    }))
+
+    const wb = utils.book_new()
+    utils.book_append_sheet(wb, utils.json_to_sheet(customerSheet), '顾客')
+    utils.book_append_sheet(wb, utils.json_to_sheet(flatItems), '订单明细')
+    utils.book_append_sheet(wb, utils.json_to_sheet(dishSheet), '商品')
+    utils.book_append_sheet(wb, utils.json_to_sheet(tagSheet), '标签')
+
+    writeFile(wb, filePath)
+
+    res.json(apiResponse(200, {
+      path: filePath,
+      fileName,
+      customers: customers.length,
+      orders: orders.length,
+      dishes: dishes.length
+    }, '导出成功'))
+  } catch (error) {
+    console.error('导出数据失败:', error)
+    res.json(apiResponse(500, null, '导出失败: ' + error.message))
+  }
+})
+
+app.post('/api/data/backup', (req, res) => {
+  try {
+    ensureDir(backupsDir)
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+    const fileName = `huangxiaoshuai_${timestamp}.db`
+    const backupPath = path.join(backupsDir, fileName)
+
+    db.close()
+    fs.copyFileSync(dbPath, backupPath)
+    db = new DatabaseSync(dbPath)
+
+    res.json(apiResponse(200, {
+      path: backupPath,
+      fileName,
+      size: fs.statSync(backupPath).size
+    }, '备份成功'))
+  } catch (error) {
+    try { db = new DatabaseSync(dbPath) } catch {}
+    console.error('备份失败:', error)
+    res.json(apiResponse(500, null, '备份失败: ' + error.message))
+  }
+})
+
+app.delete('/api/data/clear-cache', (req, res) => {
+  try {
+    ensureDir(logsDir)
+    const logFiles = fs.readdirSync(logsDir).filter(f => f.endsWith('.log'))
+    let deletedCount = 0
+    for (const file of logFiles) {
+      try {
+        fs.unlinkSync(path.join(logsDir, file))
+        deletedCount++
+      } catch {}
+    }
+    res.json(apiResponse(200, { deletedCount }, `已清除 ${deletedCount} 个日志文件`))
+  } catch (error) {
+    console.error('清除缓存失败:', error)
+    res.json(apiResponse(500, null, '清除失败: ' + error.message))
   }
 })
 
