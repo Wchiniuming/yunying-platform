@@ -1,56 +1,41 @@
 @echo off
-setlocal EnableDelayedExpansion
-
 echo ============================================
 echo   PM2 Auto-Start Setup
 echo ============================================
 echo.
-
 cd /d "%~dp0.."
 set PROJECT_DIR=%CD%
-
-echo [STEP 1] Checking PM2 status ...
-node_modules\.bin\pm2 list 2>nul | findstr "huang-server" >nul 2>&1
+echo Project: %PROJECT_DIR%
+echo.
+echo [1/3] Checking PM2 ...
+call "%PROJECT_DIR%\node_modules\.bin\pm2.cmd" list >nul 2>&1
 if errorlevel 1 (
-  echo   [ERROR] PM2 not running. Run: npm run pm2:start
-  echo.
+  echo PM2 not running. Run npm run pm2:start first.
   pause
   exit /b 1
 )
-echo   [OK] PM2 is running
+echo   OK
 echo.
-
-echo [STEP 2] Saving PM2 process list ...
-node_modules\.bin\pm2 save >nul 2>&1
-echo   [OK] Process list saved
+echo [2/3] Saving process list ...
+call "%PROJECT_DIR%\node_modules\.bin\pm2.cmd" save >nul 2>&1
+echo   OK
 echo.
-
-echo [STEP 3] Creating Startup shortcut ...
-set SHORTCUT_PATH=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\HuangXiaoshuai.lnk
-set BAT_PATH=%PROJECT_DIR%\run-pm2.bat
-
-echo Set oWS = WScript.CreateObject("WScript.Shell") > "%TEMP%\make_shortcut.vbs"
-echo Set oLink = oWS.CreateShortcut("%SHORTCUT_PATH%") >> "%TEMP%\make_shortcut.vbs"
-echo oLink.TargetPath = "cmd.exe" >> "%TEMP%\make_shortcut.vbs"
-echo oLink.Arguments = "/c cd /d %PROJECT_DIR% && npm run pm2:start" >> "%TEMP%\make_shortcut.vbs"
-echo oLink.WorkingDirectory = "%PROJECT_DIR%" >> "%TEMP%\make_shortcut.vbs"
-echo oLink.Description = "Huang Xiaoshuai PM2 Auto-Start" >> "%TEMP%\make_shortcut.vbs"
-echo oLink.Save() >> "%TEMP%\make_shortcut.vbs"
-cscript //nologo "%TEMP%\make_shortcut.vbs" >nul 2>&1
-del "%TEMP%\make_shortcut.vbs" >nul 2>&1
-
-if exist "%SHORTCUT_PATH%" (
-  echo   [OK] Startup shortcut created
+echo [3/3] Creating startup script ...
+set STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
+set STARTUP_BAT=%STARTUP_DIR%\start-huang-pm2.bat
+echo @echo off > "%STARTUP_BAT%"
+echo cd /d "%PROJECT_DIR%" >> "%STARTUP_BAT%"
+echo call "%%~dp0..\node_modules\.bin\pm2.cmd" resurrect >> "%STARTUP_BAT%"
+if exist "%STARTUP_BAT%" (
+  echo   OK: %STARTUP_BAT%
 ) else (
-  echo   [WARNING] Could not create shortcut. Run as Administrator if needed.
+  echo   FAILED: could not write to Startup folder
 )
 echo.
-
 echo ============================================
-echo   Done! Services will auto-start on next login.
+echo   Setup complete. Reboot to verify.
 echo.
-echo   To remove auto-start:
-echo   del "%SHORTCUT_PATH%"
+echo   To remove auto-start, delete:
+echo   %STARTUP_BAT%
 echo ============================================
-echo.
 pause
