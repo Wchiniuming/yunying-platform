@@ -44,3 +44,12 @@ nul
 # Agent continuation state
 .sisyphus/
 
+# SSH keys (do not commit private/public keys)
+id_ed25519
+id_ed25519.pub
+id_rsa
+id_rsa.pub
+
+# SSH key generation guide (keep locally, don't commit)
+docs/ssh-keygen.txt
+

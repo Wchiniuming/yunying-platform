@@ -12,7 +12,14 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:api": "node tests/run-all.js",
-    "test:e2e": "node tests/e2e/00_smoke.js"
+    "test:e2e": "node tests/e2e/00_smoke.js",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:stop": "pm2 stop huang-server huang-frontend",
+    "pm2:restart": "pm2 restart huang-server huang-frontend",
+    "pm2:delete": "pm2 delete huang-server huang-frontend",
+    "pm2:logs": "pm2 logs",
+    "pm2:status": "pm2 status",
+    "pm2:setup": "pm2 startup && pm2 save"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
@@ -31,6 +38,7 @@
   "devDependencies": {
     "@vitejs/plugin-vue": "^5.0.4",
     "concurrently": "^8.2.2",
+    "pm2": "^7.0.3",
     "vite": "^5.1.5"
   }
 }
