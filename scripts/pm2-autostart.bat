@@ -25,7 +25,7 @@ set STARTUP_DIR=%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup
 set STARTUP_BAT=%STARTUP_DIR%\start-huang-pm2.bat
 echo @echo off > "%STARTUP_BAT%"
 echo cd /d "%PROJECT_DIR%" >> "%STARTUP_BAT%"
-echo call "%%~dp0..\node_modules\.bin\pm2.cmd" resurrect >> "%STARTUP_BAT%"
+echo call "%PROJECT_DIR%\node_modules\.bin\pm2.cmd" resurrect >> "%STARTUP_BAT%"
 if exist "%STARTUP_BAT%" (
   echo   OK: %STARTUP_BAT%
 ) else (
