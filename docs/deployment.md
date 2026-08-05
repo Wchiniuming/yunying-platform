@@ -38,11 +38,10 @@ npm start
 npm run pm2:start
 
 # 配置开机自启（只需执行一次）
-npm run pm2:setup
-# 按提示在【管理员】PowerShell 中运行输出的命令
-
-# 保存当前进程列表
+# 方法一：双击 scripts/pm2-autostart.bat（推荐）
+# 方法二：手动在管理员 PowerShell 中运行：
 npx pm2 save
+schtasks /create /tn "HuangXiaoshuai PM2" /tr "cmd /c cd /d C:\path\to\yunying-platform && npm run pm2:start" /sc onlogon /rl limited /f
 ```
 
 ---
@@ -70,6 +69,7 @@ npx pm2 save
 | `scripts/stop.bat` | 停止所有服务 |
 | `scripts/status.bat` | 查看服务状态 |
 | `scripts/update.bat` | 更新代码后重启 |
+| `scripts/pm2-autostart.bat` | 配置开机自启（双击运行） |
 
 ---
 
@@ -84,13 +84,16 @@ npx pm2 save
 npm install
 npm run pm2:start
 
-# 2. 配置开机自启（只需执行一次）
-# 这条命令会输出一段 PowerShell 命令，需在管理员 PowerShell 中运行
-npm run pm2:setup
-
-# 3. 保存当前进程列表
+# 2. 保存当前进程列表（PM2 重启后根据此列表恢复）
 npx pm2 save
+
+# 3. 配置开机自启（二选一）
+# 方法一：双击运行 scripts/pm2-autostart.bat
+# 方法二：在【管理员】PowerShell 中运行以下命令：
+schtasks /create /tn "HuangXiaoshuai PM2" /tr "cmd /c cd /d C:\path\to\yunying-platform && npm run pm2:start" /sc onlogon /rl limited /f
 ```
+
+> 将命令中的 `C:\path\to\yunying-platform` 替换为实际项目路径。
 
 ### PM2 常用命令
 
@@ -102,23 +105,22 @@ npx pm2 save
 | 查看状态 | `npm run pm2:status` |
 | 查看日志 | `npm run pm2:logs` |
 | 删除进程 | `npm run pm2:delete` |
-| 配置开机自启 | `npm run pm2:setup` |
+| 保存进程列表 | `npx pm2 save` |
 
 ### PM2 工作原理
 
 - `pm2 start` 启动两个进程：`huang-server`（后端 3000）和 `huang-frontend`（前端 5173）
 - `pm2 save` 保存当前运行的进程列表
-- 开机时 PM2 自动恢复保存的进程列表
+- 开机时 Windows 任务计划自动触发 `npm run pm2:start`
 - 进程崩溃时 PM2 自动重启（带指数退避策略）
 
 ### 取消开机自启
 
-```bash
-# 删除 PM2 进程
-npm run pm2:delete
+在 **管理员 PowerShell** 中运行：
 
-# 注销开机自启（在管理员 PowerShell 中运行）
-npx pm2 unstartup
+```powershell
+schtasks /delete /tn "HuangXiaoshuai PM2" /f
+npm run pm2:delete
 ```
 
 ---
@@ -148,7 +150,7 @@ Mac/Linux 在 `~/.huangxiaoshuai/data/`。
 | Git Clone 方式安装 | `git clone ... && cd ... && npm install` |
 | 手动模式启动 | `npm start` |
 | PM2 模式启动 | `npm run pm2:start` |
-| PM2 开机自启 | `npm run pm2:setup` + `npx pm2 save` |
+| PM2 开机自启 | 双击 `scripts/pm2-autostart.bat` |
 | 停止服务 | `npm run pm2:stop` 或双击 `scripts/stop.bat` |
 | 构建前端 | `npm run build` |
 
@@ -163,7 +165,7 @@ A: 先 `npm run pm2:stop` 或双击 `scripts/stop.bat` 停止现有服务。
 A: 升级 Node.js 到 22.5+。node:sqlite 是 Node.js 内置实验性模块，旧版本不支持。
 
 **Q: PM2 开机自启不生效**
-A: 确认步骤二以管理员身份运行了 `pm2 setup` 的输出命令，并执行了 `pm2 save`。
+A: 确认双击运行了 `scripts/pm2-autostart.bat`，或手动创建了 Windows 任务计划。
 
 **Q: Git clone 后如何同步更新**
 A: 在项目目录下运行 `git pull`，然后 `npm run pm2:restart` 重启服务即可。

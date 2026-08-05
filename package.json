@@ -19,7 +19,7 @@
     "pm2:delete": "pm2 delete huang-server huang-frontend",
     "pm2:logs": "pm2 logs",
     "pm2:status": "pm2 status",
-    "pm2:setup": "pm2 startup && pm2 save"
+    "pm2:setup": "echo see docs/deployment.md for Windows Task Scheduler setup"
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
