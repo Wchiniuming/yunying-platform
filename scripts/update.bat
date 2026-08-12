@@ -1,57 +1,61 @@
 @echo off
 setlocal EnableDelayedExpansion
+chcp 65001 >nul 2>&1
 cd /d "%~dp0.."
 set PROJECT_DIR=%CD%
-echo [DEBUG] PROJECT_DIR=%PROJECT_DIR%
 echo.
 echo ============================================
-echo   »ÆĞ¡Ë§ÂéÀ±¼¦ - Éı¼¶½Å±¾
+echo   é»„å°å¸…è¿è¥å¹³å° - æ›´æ–°è„šæœ¬
 echo ============================================
 echo.
-echo ±¾½Å±¾½«£ºÍ£Ö¹·şÎñ -> ×Ô¶¯±¸·İÊı¾İ¿â -> ¸üĞÂÒÀÀµ -> ÔËĞĞÇ¨ÒÆ -> ÌáÊ¾ÊÖ¶¯Æô¶¯
-echo Êı¾İ¿â¾ø¶Ô²»»á±»ĞŞ¸Ä»òÖØÖÃ£¬Êı¾İ»á±¸·İµ½ C:\backup\
+echo æœ¬è„šæœ¬æ‰§è¡Œï¼šåœæ­¢æœåŠ¡ -> æ‹‰å–ä»£ç  -> å®‰è£…ä¾èµ– -> é‡å¯æœåŠ¡
+echo æ•°æ®åº“ä¸ä¼šè¢«ä¿®æ”¹ï¼Œæ—§æ•°æ®å®Œæ•´ä¿ç•™
 echo.
 pause
 echo.
-echo [1/5] Í£Ö¹·şÎñ ...
-taskkill /F /FI "WINDOWTITLE eq HuangServer" 2>nul
-taskkill /F /FI "WINDOWTITLE eq HuangDev" 2>nul
-echo   ÒÑÍ£Ö¹
+echo [1/6] åœæ­¢ PM2 æœåŠ¡ ...
+call npm run pm2:stop
+echo   å·²åœæ­¢
 echo.
-echo [2/5] ×Ô¶¯±¸·İÊı¾İ¿â ...
+echo [2/6] æ‹‰å–äº‘ç«¯ä»£ç  ...
+git pull
+if errorlevel 1 (
+  echo   X git pull å¤±è´¥ï¼Œè¯·æ£€æŸ¥ç½‘ç»œæˆ–å†²çª
+  pause
+  exit /b 1
+)
+echo   ä»£ç å·²æ›´æ–°
+echo.
+echo [3/6] å®‰è£…ä¾èµ– ...
+call npm install
+if errorlevel 1 (
+  echo   X npm install å¤±è´¥
+  pause
+  exit /b 1
+)
+echo   ä¾èµ–å®‰è£…å®Œæˆ
+echo.
+echo [4/6] è‡ªåŠ¨æ•°æ®åº“å¤‡ä»½ ...
 if not exist "C:\backup" mkdir "C:\backup"
-for /f "tokens=2 delims==" %%a in ('wmic os get localdatetime /value'') do set DATETIME=%%a
+for /f "tokens=2 delims==" %%a in ('wmic os get localdatetime /value') do set DATETIME=%%a
 set BACKUP_FILE=C:\backup\huangxiaoshuai-!DATETIME:~0,8!-!DATETIME:~8,6!.db
 set DB_FILE=%APPDATA%\data\huangxiaoshuai.db
 if exist "!DB_FILE!" (
   copy /Y "!DB_FILE!" "!BACKUP_FILE!" >nul 2>&1
-  echo   ±¸·İ: !BACKUP_FILE!
+  echo   å¤‡ä»½: !BACKUP_FILE!
 ) else (
-  echo   Êı¾İ¿âÎÄ¼ş²»´æÔÚ£¬Ìø¹ı±¸·İ
+  echo   æ•°æ®åº“æ–‡ä»¶ä¸å­˜åœ¨ï¼Œè·³è¿‡å¤‡ä»½
 )
 echo.
-echo [3/5] ¸üĞÂ npm ÒÀÀµ ...
-call npm install
-if errorlevel 1 (
-  echo   X npm install Ê§°Ü
-  pause
-  exit /b 1
-)
-echo   ÒÀÀµÒÑ¸üĞÂ
+echo [5/6] å¯åŠ¨æœåŠ¡ ...
+call npm run pm2:start
 echo.
-echo [4/5] ÔËĞĞ schema Ç¨ÒÆ ...
-if not exist "%APPDATA%\data" mkdir "%APPDATA%\data"
-start "HuangMigrate" /MIN cmd /c "node server\index.js >> logs\migrate.log 2>&1"
-timeout /t 4 /nobreak >nul
-taskkill /F /FI "WINDOWTITLE eq HuangMigrate" 2>nul >nul
-echo   Schema Ç¨ÒÆÍê³É
-echo.
-echo [5/5] Íê³É
+echo [6/6] å®Œæˆ
 echo.
 echo ============================================
-echo   Éı¼¶Íê³É
+echo   æ›´æ–°å®Œæˆ
 echo ============================================
-echo ±¸·İÎÄ¼ş: C:\backup\huangxiaoshuai-*.db
-echo ÏÂÒ»²½£ºË«»÷ start.bat Æô¶¯ĞÂ°æ±¾
+echo å¤‡ä»½æ–‡ä»¶: C:\backup\huangxiaoshuai-*.db
+echo è¯·è®¿é—® http://localhost:5173 éªŒè¯æ–°åŠŸèƒ½
 echo.
 pause
