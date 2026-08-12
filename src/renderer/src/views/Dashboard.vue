@@ -22,72 +22,130 @@
       <div class="left-panel">
 
         <!-- ── Stats Cards Row ──────────────────────────────────────────────── -->
-        <div class="stats-grid">
-          <div class="stat-card stat-card--orders">
-            <div class="stat-icon-wrap">
-              <div class="stat-icon">
-                <el-icon><Document /></el-icon>
+        <div class="stats-section">
+          <div class="stats-section-header">
+            <div class="stats-section-dot stats-section-dot--revenue"></div>
+            <span class="stats-section-title">营收概览</span>
+          </div>
+          <div class="stats-grid">
+            <div class="stat-card stat-card--orders">
+              <div class="stat-trend" :class="getTrendClass(stats.trends.orders)">
+                <el-icon><Top /></el-icon>
+                <span>{{ formatTrend(stats.trends.orders) }}</span>
+              </div>
+              <div class="stat-icon-wrap">
+                <div class="stat-icon">
+                  <el-icon><Document /></el-icon>
+                </div>
+              </div>
+              <div class="stat-content">
+                <div class="stat-value">{{ stats.todayOrders }}</div>
+                <div class="stat-label">今日订单</div>
               </div>
             </div>
-            <div class="stat-content">
-              <div class="stat-value">{{ stats.todayOrders }}</div>
-              <div class="stat-label">今日订单</div>
+
+            <div class="stat-card stat-card--revenue">
+              <div class="stat-trend" :class="getTrendClass(stats.trends.revenue)">
+                <el-icon><Top /></el-icon>
+                <span>{{ formatTrend(stats.trends.revenue) }}</span>
+              </div>
+              <div class="stat-icon-wrap">
+                <div class="stat-icon">
+                  <el-icon><Money /></el-icon>
+                </div>
+              </div>
+              <div class="stat-content">
+                <div class="stat-value">¥{{ stats.todayRevenue }}</div>
+                <div class="stat-label">今日营收</div>
+              </div>
             </div>
-            <div class="stat-trend stat-trend--up">
-              <el-icon><Top /></el-icon>
-              <span>较昨日</span>
+
+            <div class="stat-card stat-card--avg">
+              <div class="stat-trend" :class="getTrendClass(stats.trends.avgOrder)">
+                <el-icon><Top /></el-icon>
+                <span>{{ formatTrend(stats.trends.avgOrder) }}</span>
+              </div>
+              <div class="stat-icon-wrap">
+                <div class="stat-icon">
+                  <el-icon><TrendCharts /></el-icon>
+                </div>
+              </div>
+              <div class="stat-content">
+                <div class="stat-value">¥{{ stats.todayAvgOrder }}</div>
+                <div class="stat-label">客单价</div>
+              </div>
+            </div>
+
+            <div class="stat-card stat-card--customers">
+              <div class="stat-trend" :class="getTrendClass(stats.trends.newCustomers)">
+                <el-icon><Top /></el-icon>
+                <span>{{ formatTrend(stats.trends.newCustomers) }}</span>
+              </div>
+              <div class="stat-icon-wrap">
+                <div class="stat-icon">
+                  <el-icon><User /></el-icon>
+                </div>
+              </div>
+              <div class="stat-content">
+                <div class="stat-value">{{ stats.newCustomers }}</div>
+                <div class="stat-label">新顾客</div>
+              </div>
             </div>
           </div>
+        </div>
 
-          <div class="stat-card stat-card--revenue">
-            <div class="stat-icon-wrap">
-              <div class="stat-icon">
-                <el-icon><Money /></el-icon>
-              </div>
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">¥{{ stats.todayRevenue }}</div>
-              <div class="stat-label">今日营收</div>
-            </div>
-            <div class="stat-trend stat-trend--up">
-              <el-icon><Top /></el-icon>
-              <span>较昨日</span>
-            </div>
+        <div class="stats-section">
+          <div class="stats-section-header">
+            <div class="stats-section-dot stats-section-dot--cost"></div>
+            <span class="stats-section-title">成本概览</span>
           </div>
-
-          <div class="stat-card stat-card--avg">
-            <div class="stat-icon-wrap">
-              <div class="stat-icon">
-                <el-icon><TrendCharts /></el-icon>
+          <div class="stats-grid stats-grid--cost">
+            <div class="stat-card stat-card--cost">
+              <div class="stat-trend" :class="getTrendClass(costStats.trends.cost)">
+                <el-icon><Top /></el-icon>
+                <span>{{ formatTrend(costStats.trends.cost) }}</span>
+              </div>
+              <div class="stat-icon-wrap">
+                <div class="stat-icon">
+                  <el-icon><Money /></el-icon>
+                </div>
+              </div>
+              <div class="stat-content">
+                <div class="stat-value">¥{{ costStats.total_cost }}</div>
+                <div class="stat-label">今日成本</div>
               </div>
             </div>
-            <div class="stat-content">
-              <div class="stat-value">¥{{ stats.todayAvgOrder }}</div>
-              <div class="stat-label">客单价</div>
-            </div>
-          </div>
 
-          <div class="stat-card stat-card--pending">
-            <div class="stat-icon-wrap">
-              <div class="stat-icon">
-                <el-icon><Clock /></el-icon>
+            <div class="stat-card stat-card--profit">
+              <div class="stat-trend" :class="getTrendClass(costStats.trends.profit)">
+                <el-icon><Top /></el-icon>
+                <span>{{ formatTrend(costStats.trends.profit) }}</span>
+              </div>
+              <div class="stat-icon-wrap">
+                <div class="stat-icon">
+                  <el-icon><TrendCharts /></el-icon>
+                </div>
+              </div>
+              <div class="stat-content">
+                <div class="stat-value" :class="Number(costStats.profit) >= 0 ? 'profit-pos' : 'profit-neg'">¥{{ costStats.profit }}</div>
+                <div class="stat-label">今日毛利</div>
               </div>
             </div>
-            <div class="stat-content">
-              <div class="stat-value">{{ stats.pendingOrders }}</div>
-              <div class="stat-label">待处理</div>
-            </div>
-          </div>
 
-          <div class="stat-card stat-card--customers">
-            <div class="stat-icon-wrap">
-              <div class="stat-icon">
-                <el-icon><User /></el-icon>
+            <div class="stat-card stat-card--rate">
+              <div class="stat-trend" :class="getTrendClass(costStats.trends.profitRate)">
+                <el-icon><Top /></el-icon>
+                <span>{{ formatTrend(costStats.trends.profitRate) }}</span>
               </div>
-            </div>
-            <div class="stat-content">
-              <div class="stat-value">{{ stats.newCustomers }}</div>
-              <div class="stat-label">新顾客</div>
+              <div class="stat-icon-wrap">
+                <div class="stat-icon">
+                  <el-icon><Top /></el-icon>
+                </div>
+              </div>
+              <div class="stat-content">
+                <div class="stat-value" :class="Number(costStats.profit_rate) >= 30 ? 'profit-pos' : Number(costStats.profit_rate) >= 10 ? '' : 'profit-neg'">{{ costStats.profit_rate }}%</div>
+                <div class="stat-label">毛利率</div>
+              </div>
             </div>
           </div>
         </div>
@@ -185,6 +243,41 @@
           </div>
         </div>
 
+        <!-- ── Section Divider: 成本分析 ─────────────────────────────────────── -->
+        <div class="section-divider">
+          <div class="section-divider-line"></div>
+          <div class="section-divider-label">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+            </svg>
+            成本分析
+          </div>
+          <div class="section-divider-line"></div>
+        </div>
+
+        <!-- ── Section 4: Cost Analysis ──────────────────────────────────────── -->
+        <div class="section-group">
+          <div class="charts-grid charts-grid-2">
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3 class="chart-title">成本结构</h3>
+                <span class="chart-total">¥{{ costStats.total_cost }}</span>
+              </div>
+              <div v-loading="chartsLoading.cost" class="chart-body">
+                <div ref="costCategoryChartRef" class="chart-container chart-container--donut"></div>
+              </div>
+            </div>
+            <div class="chart-card">
+              <div class="chart-header">
+                <h3 class="chart-title">供应商采购排行 Top 5</h3>
+              </div>
+              <div v-loading="chartsLoading.cost" class="chart-body">
+                <div ref="supplierRankingRef" class="chart-container"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
       </div>
       <!-- END LEFT PANEL -->
 
@@ -266,6 +359,26 @@
           </div>
         </div>
 
+        <div class="quick-stats-card">
+          <div class="quick-stats-title">成本速览</div>
+          <div class="quick-stats-list">
+            <div class="quick-stat-item">
+              <span class="quick-stat-label">今日成本</span>
+              <span class="quick-stat-value">¥{{ costStats.total_cost }}</span>
+            </div>
+            <div class="quick-stat-divider"></div>
+            <div class="quick-stat-item">
+              <span class="quick-stat-label">今日毛利</span>
+              <span class="quick-stat-value" :class="costStats.profit >= 0 ? 'profit-pos' : 'profit-neg'">¥{{ costStats.profit }}</span>
+            </div>
+            <div class="quick-stat-divider"></div>
+            <div class="quick-stat-item">
+              <span class="quick-stat-label">毛利率</span>
+              <span class="quick-stat-value" :class="Number(costStats.profit_rate) >= 30 ? 'profit-pos' : Number(costStats.profit_rate) >= 10 ? '' : 'profit-neg'">{{ costStats.profit_rate }}%</span>
+            </div>
+          </div>
+        </div>
+
       </div>
       <!-- END RIGHT PANEL -->
 
@@ -293,7 +406,26 @@ const stats = reactive({
   recentOrders: [],
   todayUnpaidOrders: 0,
   todayFirstOrders: 0,
-  firstOrderRate: '0.0'
+  firstOrderRate: '0.0',
+  trends: {
+    orders: 0,
+    revenue: 0,
+    avgOrder: 0,
+    newCustomers: 0
+  }
+})
+
+const costStats = reactive({
+  total_cost: 0,
+  revenue: 0,
+  profit: 0,
+  profit_rate: '0.0',
+  trends: {
+    cost: 0,
+    revenue: 0,
+    profit: 0,
+    profitRate: 0
+  }
 })
 
 // ─── Time Range ───────────────────────────────────────────────────────────────
@@ -312,6 +444,8 @@ const productsRankingRef = ref(null)
 const hourlyDistRef = ref(null)
 const priceDistRef = ref(null)
 const ordersListRef = ref(null)
+const costCategoryChartRef = ref(null)
+const supplierRankingRef = ref(null)
 
 // ─── Chart Instances ─────────────────────────────────────────────────────────
 let ordersTrendChart = null
@@ -320,6 +454,8 @@ let statusDistChart = null
 let productsRankingChart = null
 let hourlyDistChart = null
 let priceDistChart = null
+let costCategoryChart = null
+let supplierRankingChart = null
 
 // ─── Loading States ───────────────────────────────────────────────────────────
 const chartsLoading = reactive({
@@ -327,7 +463,8 @@ const chartsLoading = reactive({
   distribution: false,
   ranking: false,
   hourly: false,
-  price: false
+  price: false,
+  cost: false
 })
 
 // ─── Chart Data ───────────────────────────────────────────────────────────────
@@ -337,6 +474,8 @@ const statusDistTotal = ref(0)
 const productsRankingData = reactive([])
 const hourlyDistData = reactive([])
 const priceDistData = reactive([])
+const costCategoryData = reactive([])
+const supplierRankingData = reactive([])
 
 // ─── Theme Colors ────────────────────────────────────────────────────────────
 const colors = {
@@ -375,6 +514,9 @@ const statusLabelMap = {
   cancelled: '已取消'
 }
 
+const costCategoryColors = { ingredient: '#E85D04', packaging: '#409EFF', delivery: '#67C23A', platform: '#E6A23C', marketing: '#F56C6C', fixed: '#909399', labor: '#9C27B0', other: '#666' }
+const costCategoryLabels = { ingredient: '食材', packaging: '包装', delivery: '配送', platform: '平台', marketing: '营销', fixed: '固定', labor: '人力', other: '其他' }
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 const today = dayjs().format('MM-DD')
 
@@ -392,6 +534,18 @@ const statusClassMap = {
 
 const formatTime = (time) => dayjs(time).format('HH:mm')
 const goToOrder = (row) => router.push(`/orders/${row.id}`)
+
+const getTrendClass = (val) => {
+  if (val > 0) return 'trend--up'
+  if (val < 0) return 'trend--down'
+  return 'trend--flat'
+}
+
+const formatTrend = (val) => {
+  if (val > 0) return `+${val}%`
+  if (val < 0) return `${val}%`
+  return '0%'
+}
 
 // ─── Chart Initialization ─────────────────────────────────────────────────────
 
@@ -766,6 +920,92 @@ function initPriceDist() {
   priceDistChart.setOption(option)
 }
 
+function initCostCategory() {
+  if (!costCategoryChartRef.value) return
+  costCategoryChart = echarts.init(costCategoryChartRef.value)
+
+  const isDark = document.documentElement.dataset.theme === 'dark'
+  const textColor = isDark ? '#F5F5F4' : '#292524'
+
+  const option = {
+    tooltip: {
+      trigger: 'item',
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderWidth: 1,
+      textStyle: { color: colors.text, fontSize: 11 },
+      formatter: (p) => `<span style="font-weight:600">${p.name}</span><br/>¥${p.value} (${p.percent}%)`
+    },
+    legend: { bottom: 0, type: 'scroll', textStyle: { color: colors.textMuted, fontSize: 10 } },
+    series: [{
+      type: 'pie',
+      radius: ['45%', '70%'],
+      center: ['50%', '45%'],
+      label: {
+        show: true,
+        formatter: '{b} {d}%',
+        color: colors.text,
+        fontSize: 11
+      },
+      data: costCategoryData.map(c => ({
+        value: Number(c.amount).toFixed(2),
+        name: costCategoryLabels[c.name] || c.name,
+        itemStyle: { color: costCategoryColors[c.name] || '#999' }
+      }))
+    }],
+    animation: true
+  }
+  costCategoryChart.setOption(option)
+}
+
+function initSupplierRanking() {
+  if (!supplierRankingRef.value) return
+  supplierRankingChart = echarts.init(supplierRankingRef.value)
+
+  const isDark = document.documentElement.dataset.theme === 'dark'
+  const textColor = isDark ? '#F5F5F4' : '#292524'
+
+  const option = {
+    tooltip: {
+      trigger: 'axis',
+      axisPointer: { type: 'shadow' },
+      backgroundColor: colors.surface,
+      borderColor: colors.border,
+      borderWidth: 1,
+      textStyle: { color: colors.text, fontSize: 11 },
+      formatter: (params) => {
+        const p = params[0]
+        return `<span style="font-weight:600">${p.name}</span><br/>采购额：<b>¥${p.value}</b>`
+      }
+    },
+    grid: { left: 80, right: 30, top: 12, bottom: 40 },
+    xAxis: { type: 'value', axisLabel: { formatter: '¥{value}', color: colors.textMuted, fontSize: 10 } },
+    yAxis: {
+      type: 'category',
+      data: supplierRankingData.map(s => s.name || '未知'),
+      inverse: true,
+      axisLine: { show: false },
+      axisTick: { show: false },
+      axisLabel: { color: colors.textMuted, fontSize: 10, width: 88, overflow: 'truncate' }
+    },
+    series: [{
+      type: 'bar',
+      data: supplierRankingData.map(s => Number(s.amount).toFixed(2)),
+      barMaxWidth: 16,
+      itemStyle: {
+        borderRadius: [0, 3, 3, 0],
+        color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
+          { offset: 0, color: colors.primary },
+          { offset: 1, color: colors.primaryLight }
+        ])
+      },
+      label: { show: true, position: 'right', color: colors.textMuted, fontSize: 10, formatter: '¥{c}' }
+    }],
+    animation: true
+  }
+  supplierRankingChart.setOption(option)
+}
+
 // ─── Data Fetching ────────────────────────────────────────────────────────────
 
 async function loadTrends() {
@@ -855,6 +1095,28 @@ async function loadPriceDist() {
   }
 }
 
+async function loadCostAnalysis() {
+  chartsLoading.cost = true
+  try {
+    const rangeMap = { 7: 'week', 30: 'month', 0: 'month' }
+    const rangeKey = rangeMap[timeRange.value] || 'month'
+    const res = await api.costStats.summary(rangeKey)
+    if (res.code === 200) {
+      costCategoryData.length = 0
+      costCategoryData.push(...(res.data.by_category || []))
+      supplierRankingData.length = 0
+      supplierRankingData.push(...(res.data.by_supplier || []))
+      await nextTick()
+      initCostCategory()
+      initSupplierRanking()
+    }
+  } catch (e) {
+    console.error('加载成本分析数据失败', e)
+  } finally {
+    chartsLoading.cost = false
+  }
+}
+
 function changeTimeRange(days) {
   timeRange.value = days
   Promise.all([
@@ -862,7 +1124,8 @@ function changeTimeRange(days) {
     loadDistribution(),
     loadRanking(),
     loadHourly(),
-    loadPriceDist()
+    loadPriceDist(),
+    loadCostAnalysis()
   ])
 }
 
@@ -874,14 +1137,37 @@ function resizeCharts() {
   productsRankingChart?.resize()
   hourlyDistChart?.resize()
   priceDistChart?.resize()
+  costCategoryChart?.resize()
+  supplierRankingChart?.resize()
 }
 
 // ─── Lifecycle ────────────────────────────────────────────────────────────────
 const loadStats = async () => {
   try {
-    const result = await api.stats.dashboard()
-    if (result.code === 200) {
-      Object.assign(stats, result.data)
+    const [dashRes, costRes] = await Promise.all([
+      api.stats.dashboard(),
+      api.costStats.summary('today')
+    ])
+    if (dashRes.code === 200) {
+      const d = dashRes.data
+      stats.todayOrders = d.todayOrders
+      stats.todayRevenue = d.todayRevenue
+      stats.todayAvgOrder = d.todayAvgOrder
+      stats.pendingOrders = d.pendingOrders
+      stats.newCustomers = d.newCustomers
+      stats.recentOrders = d.recentOrders || []
+      stats.todayUnpaidOrders = d.todayUnpaidOrders
+      stats.todayFirstOrders = d.todayFirstOrders
+      stats.firstOrderRate = d.firstOrderRate
+      stats.trends = d.trends || { orders: 0, revenue: 0, avgOrder: 0, newCustomers: 0 }
+    }
+    if (costRes.code === 200) {
+      const d = costRes.data || {}
+      costStats.total_cost = Number(d.total_cost || 0).toFixed(2)
+      costStats.revenue = Number(d.revenue || 0).toFixed(2)
+      costStats.profit = Number(d.profit || 0).toFixed(2)
+      costStats.profit_rate = d.profit_rate || '0.0'
+      costStats.trends = d.trends || { cost: 0, revenue: 0, profit: 0, profitRate: 0 }
     }
   } catch (error) {
     console.error('加载统计数据失败:', error)
@@ -895,7 +1181,8 @@ onMounted(async () => {
     loadDistribution(),
     loadRanking(),
     loadHourly(),
-    loadPriceDist()
+    loadPriceDist(),
+    loadCostAnalysis()
   ])
   window.addEventListener('resize', resizeCharts)
 })
@@ -908,6 +1195,8 @@ onUnmounted(() => {
   productsRankingChart?.dispose()
   hourlyDistChart?.dispose()
   priceDistChart?.dispose()
+  costCategoryChart?.dispose()
+  supplierRankingChart?.dispose()
 })
 </script>
 
@@ -968,11 +1257,51 @@ onUnmounted(() => {
   min-width: 0;
 }
 
-/* ─── Stats Grid ──────────────────────────────────────────────────────────── */
+/* ─── Stats Section ───────────────────────────────────────────────────────── */
+.stats-section {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 14px 16px;
+}
+
+.stats-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.stats-section-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.stats-section-dot--revenue {
+  background: var(--primary);
+}
+
+.stats-section-dot--cost {
+  background: var(--warning);
+}
+
+.stats-section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
 .stats-grid {
   display: grid;
-  grid-template-columns: repeat(5, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   gap: 10px;
+}
+
+.stats-grid--cost {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .stat-card {
@@ -982,6 +1311,7 @@ onUnmounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px 12px;
+  padding-top: 26px;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -1039,20 +1369,38 @@ onUnmounted(() => {
 .stat-card--avg .stat-icon { background: rgba(69, 123, 157, 0.1); color: #457B9D; }
 .stat-card--pending .stat-icon { background: rgba(214, 40, 40, 0.1); color: #D62828; }
 .stat-card--customers .stat-icon { background: rgba(45, 106, 79, 0.1); color: #2D6A4F; }
+.stat-card--cost .stat-icon { background: rgba(232, 93, 4, 0.1); color: #E85D04; }
+.stat-card--profit .stat-icon { background: rgba(45, 106, 79, 0.1); color: #2D6A4F; }
+.stat-card--rate .stat-icon { background: rgba(244, 140, 6, 0.1); color: #F48C06; }
+.profit-pos { color: var(--success); }
+.profit-neg { color: var(--warning); }
 
 .stat-trend {
+  position: absolute;
+  top: 8px;
+  right: 8px;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  font-size: 10px;
+  gap: 1px;
+  font-size: 9px;
   font-weight: 600;
-  padding: 2px 5px;
+  padding: 1px 4px;
   border-radius: var(--radius-xs);
 }
 
 .stat-trend--up {
   color: #2D6A4F;
   background: rgba(45, 106, 79, 0.1);
+}
+
+.stat-trend--down {
+  color: var(--warning);
+  background: rgba(214, 40, 40, 0.1);
+}
+
+.stat-trend--flat {
+  color: var(--text-muted);
+  background: var(--surface-2);
 }
 
 .stat-badge {
@@ -1597,6 +1945,34 @@ onUnmounted(() => {
 [data-theme="dark"] .stat-badge {
   background: #EF4444;
   color: #fff;
+}
+
+/* ─── Section Divider ───────────────────────────────────────────────────────── */
+.section-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.section-divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+.section-divider-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.section-divider-label svg {
+  color: var(--primary);
 }
 
 /* ─── Responsive Breakpoints ────────────────────────────────────────────────── */

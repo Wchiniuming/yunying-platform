@@ -629,6 +629,21 @@ onMounted(() => {
   justify-content: center;
 }
 
+/* Override global input/select/textarea reset to restore borders */
+.dialog-body .form-input,
+.dialog-body .form-select {
+  border: 1px solid var(--border) !important;
+  box-shadow: none !important;
+  outline: none !important;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.dialog-body .form-input:focus,
+.dialog-body .form-select:focus {
+  border-color: var(--primary) !important;
+  box-shadow: var(--shadow-glow) !important;
+}
+
 .status-toggle {
   display: flex;
   gap: 4px;

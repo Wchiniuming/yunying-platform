@@ -10,12 +10,13 @@
       </div>
 
       <nav class="sidebar-nav">
-        <div class="nav-section-label">主导航</div>
-
-        <button class="nav-item" :class="{ active: activeMenu === '/dashboard' }" @click="handleMenuSelect('/dashboard')">
+        <button class="nav-item nav-item--overview" :class="{ active: activeMenu === '/dashboard' }" @click="handleMenuSelect('/dashboard')">
           <span class="nav-icon"><DataAnalysis /></span>
           <span class="nav-label">数据概览</span>
         </button>
+
+        <div class="nav-divider"></div>
+        <div class="nav-section-label">营收管理</div>
 
         <button class="nav-item" :class="{ active: activeMenu === '/orders' }" @click="handleMenuSelect('/orders')">
           <span class="nav-icon"><Document /></span>
@@ -32,14 +33,17 @@
           <span class="nav-label">商品管理</span>
         </button>
 
-        <button class="nav-item" :class="{ active: activeMenu === '/tags' }" @click="handleMenuSelect('/tags')">
-          <span class="nav-icon"><PriceTag /></span>
-          <span class="nav-label">标签管理</span>
+        <div class="nav-divider"></div>
+        <div class="nav-section-label">成本管理</div>
+
+        <button class="nav-item" :class="{ active: activeMenu === '/cost/procurements' }" @click="handleMenuSelect('/cost/procurements')">
+          <span class="nav-icon"><ShoppingCart /></span>
+          <span class="nav-label">采购入库</span>
         </button>
 
-        <button class="nav-item" :class="{ active: activeMenu === '/delivery' }" @click="handleMenuSelect('/delivery')">
-          <span class="nav-icon"><Van /></span>
-          <span class="nav-label">配送管理</span>
+        <button class="nav-item" :class="{ active: activeMenu === '/cost/records' }" @click="handleMenuSelect('/cost/records')">
+          <span class="nav-icon"><Money /></span>
+          <span class="nav-label">成本记录</span>
         </button>
 
         <div class="nav-divider"></div>
@@ -111,7 +115,11 @@ import {
   Setting,
   Fold,
   Expand,
-  PriceTag
+  PriceTag,
+  ShoppingCart,
+  Box,
+  OfficeBuilding,
+  Money
 } from '@element-plus/icons-vue'
 
 const router = useRouter()
@@ -342,6 +350,33 @@ onMounted(() => {
 
 .nav-item.active .nav-icon {
   color: var(--primary);
+}
+
+.nav-item--overview {
+  background: linear-gradient(135deg, rgba(232, 93, 4, 0.08) 0%, rgba(250, 163, 7, 0.05) 100%);
+  border: 1px solid rgba(232, 93, 4, 0.15);
+  margin-bottom: 4px;
+}
+
+.nav-item--overview:hover {
+  background: linear-gradient(135deg, rgba(232, 93, 4, 0.12) 0%, rgba(250, 163, 7, 0.08) 100%);
+  border-color: rgba(232, 93, 4, 0.25);
+}
+
+.nav-item--overview.active {
+  background: linear-gradient(135deg, rgba(232, 93, 4, 0.15) 0%, rgba(250, 163, 7, 0.1) 100%);
+  border-color: rgba(232, 93, 4, 0.3);
+}
+
+.nav-item--overview .nav-icon {
+  color: var(--primary);
+  background: rgba(232, 93, 4, 0.1);
+  border-radius: var(--radius-sm);
+  padding: 6px;
+}
+
+.nav-item--overview .nav-label {
+  font-weight: 600;
 }
 
 [data-theme="dark"] .nav-item.active {

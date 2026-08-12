@@ -138,28 +138,6 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="标签" width="160" align="left">
-          <template #default="{ row }">
-            <div class="customer-tags-cell">
-              <template v-for="tag in (row.tags || [])" :key="tag.id">
-                <span
-                  class="customer-tag-chip"
-                  :style="{ background: tag.color + '22', color: tag.color, borderColor: tag.color + '44' }"
-                >
-                  {{ tag.name }}
-                </span>
-              </template>
-              <el-tooltip
-                v-if="row.tags && row.tags.length > 2"
-                placement="top"
-                :content="row.tags.map(t => t.name).join('、')"
-              >
-                <span class="customer-tag-more">+{{ row.tags.length - 2 }}</span>
-              </el-tooltip>
-            </div>
-          </template>
-        </el-table-column>
-
         <el-table-column prop="phone" label="电话" width="130" min-width="110" />
 
         <el-table-column prop="address" label="地址" min-width="280">
@@ -186,13 +164,16 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="160" fixed="right" align="center">
+        <el-table-column label="操作" width="180" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" class="btn-ghost-link" @click.stop="handleViewOrders(row)">
               订单
             </el-button>
             <el-button type="primary" link size="small" class="btn-ghost-link" @click.stop="handleEditCustomer(row)">
               编辑
+            </el-button>
+            <el-button type="danger" link size="small" class="btn-ghost-link" @click.stop="handleDelete(row)">
+              删除
             </el-button>
           </template>
         </el-table-column>
@@ -211,104 +192,58 @@
       </div>
     </div>
 
-    <el-dialog v-model="dialogVisible" :title="dialogMode === 'add' ? '新增顾客' : '编辑顾客'" width="440px">
-      <el-form ref="formRef" :model="customerForm" :rules="rules" label-width="80px" size="default">
-        <el-form-item label="昵称" prop="wechat_nickname">
+    <el-dialog v-model="dialogVisible" :title="dialogMode === 'add' ? '新增顾客' : '编辑顾客'" width="640px" class="customer-dialog" destroy-on-close>
+      <div class="customer-form-grid">
+        <div class="form-field">
+          <label class="field-label"><span class="required-mark">*</span>昵称</label>
           <el-input v-model="customerForm.wechat_nickname" placeholder="顾客微信昵称" />
-        </el-form-item>
+        </div>
 
-        <el-form-item label="电话" prop="phone">
+        <div class="form-field">
+          <label class="field-label"><span class="required-mark">*</span>电话</label>
           <el-input v-model="customerForm.phone" placeholder="联系电话" />
-        </el-form-item>
+        </div>
 
-        <el-form-item label="地址" prop="address">
-          <el-input v-model="customerForm.address" type="textarea" :rows="2" placeholder="送餐地址" />
-        </el-form-item>
+        <div class="form-field form-field--full">
+          <label class="field-label"><span class="required-mark">*</span>送餐地址</label>
+          <el-input v-model="customerForm.address" type="textarea" :rows="2" placeholder="送餐地址" resize="none" />
+        </div>
 
-        <el-form-item label="顾客级别">
+        <div class="form-field form-field--full">
+          <label class="field-label">顾客级别</label>
           <div class="level-pills">
-            <button
-              type="button"
-              class="level-pill"
-              :class="{ active: customerForm.customer_level === 'normal' }"
-              @click="customerForm.customer_level = 'normal'"
-            >
+            <button type="button" class="level-pill" :class="{ active: customerForm.customer_level === 'normal' }" @click="customerForm.customer_level = 'normal'">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="level-icon"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
               <span>普通</span>
             </button>
-            <button
-              type="button"
-              class="level-pill"
-              :class="{ active: customerForm.customer_level === 'vip' }"
-              @click="customerForm.customer_level = 'vip'"
-            >
+            <button type="button" class="level-pill" :class="{ active: customerForm.customer_level === 'vip' }" @click="customerForm.customer_level = 'vip'">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="level-icon"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
               <span>VIP</span>
             </button>
-            <button
-              type="button"
-              class="level-pill"
-              :class="{ active: customerForm.customer_level === 'svip' }"
-              @click="customerForm.customer_level = 'svip'"
-            >
+            <button type="button" class="level-pill" :class="{ active: customerForm.customer_level === 'svip' }" @click="customerForm.customer_level = 'svip'">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="level-icon"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
               <span>SVIP</span>
             </button>
           </div>
-        </el-form-item>
+        </div>
 
-        <el-form-item label="备注">
-          <el-input v-model="customerForm.remark" type="textarea" :rows="2" placeholder="备注信息" />
-        </el-form-item>
-
-        <el-form-item label="标签">
-          <div class="tag-compact-wrap">
-            <div
-              v-for="(group, gIdx) in groupedTags"
-              :key="group.key"
-              class="tag-compact-group"
-              :class="{ 'tag-compact-group--separated': gIdx > 0 }"
-            >
-              <div class="tag-compact-group__header">
-                <span class="tag-compact-group__label">{{ group.label }}</span>
-                <div class="tag-compact-group__items">
-                  <button
-                    v-for="tag in group.tags"
-                    :key="tag.id"
-                    type="button"
-                    class="tag-dot-btn"
-                    :class="{ active: selectedTagIds.includes(tag.id) }"
-                    :style="selectedTagIds.includes(tag.id)
-                      ? { color: tag.color }
-                      : {}"
-                    @click="toggleTag(tag.id)"
-                  >
-                    <span
-                      class="tag-dot"
-                      :class="{ visible: selectedTagIds.includes(tag.id) }"
-                      :style="selectedTagIds.includes(tag.id) ? { background: tag.color } : {}"
-                    ></span>
-                    {{ tag.name }}
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </el-form-item>
-      </el-form>
-
+        <div class="form-field form-field--full">
+          <label class="field-label">备注</label>
+          <el-input v-model="customerForm.remark" type="textarea" :rows="2" placeholder="备注信息" resize="none" />
+        </div>
+      </div>
       <template #footer>
-        <el-button size="default" class="btn btn-secondary" @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" size="default" class="btn btn-primary" @click="handleSaveCustomer">保存</el-button>
+        <button class="btn btn-secondary" @click="dialogVisible = false">取消</button>
+        <button class="btn btn-primary" @click="handleSave">保存</button>
       </template>
     </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, UserFilled } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import api from '@/api'
@@ -318,28 +253,7 @@ const router = useRouter()
 const customers = ref([])
 const loading = ref(false)
 const dialogVisible = ref(false)
-const allCustomerTags = ref([])
-const selectedTagIds = ref([])
-
-const TAG_CATEGORIES = [
-  { key: 'source', label: '来源' },
-  { key: 'order', label: '订单' },
-  { key: 'other', label: '其他' }
-]
-
-const groupedTags = computed(() => {
-  const map = {}
-  TAG_CATEGORIES.forEach(c => { map[c.key] = [] })
-  allCustomerTags.value.forEach(tag => {
-    if (map[tag.category]) map[tag.category].push(tag)
-  })
-  return TAG_CATEGORIES.filter(c => map[c.key].length > 0).map(c => ({
-    ...c,
-    tags: map[c.key]
-  }))
-})
 const dialogMode = ref('add')
-const formRef = ref()
 
 const filters = reactive({
   keyword: ''
@@ -385,23 +299,6 @@ const getLevelClass = (level) => {
 const getLevelLabel = (level) => {
   const found = customerLevels.find(l => l.value === level)
   return found ? found.label : '普通'
-}
-
-const rules = {
-  wechat_nickname: [{ required: true, message: '请输入昵称', trigger: 'blur' }],
-  phone: [
-    { required: true, message: '请输入电话', trigger: 'blur' },
-    {
-      validator: (rule, value, callback) => {
-        if (value && !/^1[3-9]\d{9}$/.test(value.trim())) {
-          callback(new Error('手机号格式不正确'))
-        } else {
-          callback()
-        }
-      },
-      trigger: 'blur'
-    }
-  ]
 }
 
 let searchTimer = null
@@ -458,25 +355,6 @@ const loadStats = async () => {
   }
 }
 
-function toggleTag(tagId) {
-  const idx = selectedTagIds.value.indexOf(tagId)
-  if (idx === -1) {
-    selectedTagIds.value.push(tagId)
-  } else {
-    selectedTagIds.value.splice(idx, 1)
-  }
-}
-
-async function loadCustomerTags() {
-  try {
-    const res = await api.tags.list()
-    if (res.code === 200) {
-      // 只显示未删除的分类（source/order/other）
-      allCustomerTags.value = res.data.filter(t => ['source', 'order', 'other'].includes(t.category))
-    }
-  } catch {}
-}
-
 const handleAddCustomer = async () => {
   dialogMode.value = 'add'
   Object.assign(customerForm, {
@@ -487,14 +365,11 @@ const handleAddCustomer = async () => {
     remark: '',
     customer_level: 'normal'
   })
-  selectedTagIds.value = []
-  await loadCustomerTags()
   dialogVisible.value = true
 }
 
 const handleEditCustomer = async (row) => {
   dialogMode.value = 'edit'
-  selectedTagIds.value = []
   Object.assign(customerForm, {
     id: row.id,
     wechat_nickname: row.wechat_nickname || '',
@@ -503,39 +378,60 @@ const handleEditCustomer = async (row) => {
     remark: row.remark || '',
     customer_level: row.customer_level || 'normal'
   })
-  await loadCustomerTags()
-  try {
-    const res = await api.customer.getTags(row.id)
-    if (res.code === 200) {
-      selectedTagIds.value = res.data.map(t => t.id)
-    }
-  } catch {}
   dialogVisible.value = true
 }
 
-const handleSaveCustomer = async () => {
-  if (!formRef.value) return
-  await formRef.value.validate(async (valid) => {
-    if (!valid) return
+const handleSave = async () => {
+  if (!customerForm.wechat_nickname?.trim()) {
+    ElMessage.warning('请输入顾客昵称')
+    return
+  }
+  if (!customerForm.phone?.trim()) {
+    ElMessage.warning('请输入联系电话')
+    return
+  }
+  if (!customerForm.address?.trim()) {
+    ElMessage.warning('请输入送餐地址')
+    return
+  }
 
-    try {
-      const payload = { ...customerForm, tag_ids: selectedTagIds.value }
-      const result = dialogMode.value === 'add'
-        ? await api.customer.create(payload)
-        : await api.customer.update({ id: customerForm.id, ...payload })
+  try {
+    const payload = { ...customerForm }
+    const result = dialogMode.value === 'add'
+      ? await api.customer.create(payload)
+      : await api.customer.update({ id: customerForm.id, ...payload })
 
-      if (result.code === 200) {
-        ElMessage.success(dialogMode.value === 'add' ? '添加成功' : '更新成功')
-        dialogVisible.value = false
-        loadCustomers()
-        loadStats()
-      } else {
-        ElMessage.error(result.message || '操作失败')
-      }
-    } catch (error) {
-      ElMessage.error('操作失败')
+    if (result.code === 200) {
+      ElMessage.success(dialogMode.value === 'add' ? '添加成功' : '更新成功')
+      dialogVisible.value = false
+      loadCustomers()
+      loadStats()
+    } else {
+      ElMessage.error(result.message || '操作失败')
     }
-  })
+  } catch (error) {
+    ElMessage.error('操作失败')
+  }
+}
+
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除顾客"${row.wechat_nickname}"？`, '删除确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const res = await api.customer.delete(row.id)
+    if (res.code === 200) {
+      ElMessage.success('已删除')
+      loadCustomers()
+      loadStats()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
 const handleViewOrders = (row) => {
@@ -803,6 +699,120 @@ onMounted(() => {
   white-space: nowrap;
   flex: 0 1 auto;
   min-width: 0;
+}
+
+/* ===== Customer Dialog ===== */
+.customer-dialog {
+  width: min(92vw, 640px) !important;
+}
+.customer-dialog :deep(.el-dialog__header) {
+  padding: 16px 24px 14px;
+  margin-right: 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.customer-dialog :deep(.el-dialog__title) { font-weight: 600; font-size: 15px; }
+.customer-dialog :deep(.el-dialog__body) { padding: 24px; }
+.customer-dialog :deep(.el-dialog__footer) {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* Form Grid: 2 columns */
+.customer-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px 24px;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-field--full {
+  grid-column: 1 / -1;
+}
+
+.field-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.required-mark {
+  color: var(--warning);
+  margin-right: 2px;
+  font-weight: 700;
+}
+
+/* Dialog input underline style */
+.customer-dialog :deep(.el-textarea__inner),
+.customer-dialog :deep(.el-input__wrapper) {
+  box-shadow: none !important;
+  background: transparent !important;
+  border-radius: 0 !important;
+  border-bottom: 1.5px solid var(--border) !important;
+  border-top: none !important;
+  border-left: none !important;
+  border-right: none !important;
+  padding: 4px 0 !important;
+  font-size: 14px !important;
+  color: var(--text) !important;
+  resize: none !important;
+  transition: border-color var(--transition-base) !important;
+  font-family: inherit !important;
+}
+.customer-dialog :deep(.el-textarea__inner:hover),
+.customer-dialog :deep(.el-input__wrapper:hover) {
+  border-bottom-color: var(--primary-light) !important;
+}
+.customer-dialog :deep(.el-textarea.is-focus .el-textarea__inner),
+.customer-dialog :deep(.el-input.is-focus .el-input__wrapper) {
+  border-bottom-color: var(--primary) !important;
+}
+
+/* ===== Dialog Footer ===== */
+.customer-dialog :deep(.dialog-footer) {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+/* ===== Shared Buttons ===== */
+.customer-dialog .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 20px;
+  border-radius: var(--radius-lg);
+  font-size: 14px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all var(--transition-base);
+  border: 1.5px solid transparent;
+}
+.customer-dialog .btn-primary {
+  background: var(--primary);
+  color: #fff;
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px rgba(232, 93, 4, 0.3);
+}
+.customer-dialog .btn-primary:hover {
+  background: var(--primary-dark);
+  border-color: var(--primary-dark);
+  transform: translateY(-1px);
+}
+.customer-dialog .btn-secondary {
+  background: var(--surface);
+  color: var(--text-secondary);
+  border-color: var(--border);
+}
+.customer-dialog .btn-secondary:hover {
+  background: var(--surface-2);
+  color: var(--text);
+  transform: translateY(-1px);
 }
 
 .level-pills {

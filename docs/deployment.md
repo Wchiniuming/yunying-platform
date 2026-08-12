@@ -25,20 +25,28 @@ cd yunying-platform
 npm install
 ```
 
-### 第三步：启动服务（二选一）
+### 第三步：启动服务
 
-**方式 A：手动模式（每次需手动启动）**
-```bash
-npm start
+**推荐：使用 scripts/start.bat（自动检测 PM2）**
+
+```
+双击运行 scripts/start.bat
 ```
 
-**方式 B：PM2 模式（推荐，配置后开机自启）**
+脚本会自动：
+1. 检测 Node.js 和 PM2 环境
+2. 检查端口占用情况
+3. 通过 PM2 启动后端（3000）和前端（5173）
+4. 等待后端就绪并显示访问地址
+
+**备选：直接用 PM2 命令**
+
 ```bash
 # 启动服务
 npm run pm2:start
 
 # 配置开机自启（只需执行一次）
-# 双击运行 scripts/pm2-autostart.bat
+双击运行 scripts/pm2-autostart.bat
 ```
 
 ---
@@ -50,7 +58,7 @@ npm run pm2:start
 1. 拷贝整个项目文件夹到新电脑
 2. 确保 Node.js ≥ 22.5
 3. `npm install`
-4. `npm start` 或 `npm run pm2:start`
+4. 双击 `scripts/start.bat` 或 `npm run pm2:start`
 
 > 注意：不要拷贝 `node_modules/`、`scripts/logs/`、`.sisyphus/` 目录
 
@@ -62,11 +70,11 @@ npm run pm2:start
 
 | 脚本 | 说明 |
 |------|------|
-| `scripts/start.bat` | 一键启动前后端服务 |
-| `scripts/stop.bat` | 停止所有服务 |
+| `scripts/start.bat` | **首选** - 通过 PM2 启动前后端服务 |
+| `scripts/stop.bat` | 停止所有服务（PM2 kill + 端口兜底） |
 | `scripts/status.bat` | 查看服务状态 |
 | `scripts/update.bat` | 更新代码后重启 |
-| `scripts/pm2-autostart.bat` | 配置 PM2 开机自启（双击运行） |
+| `scripts/pm2-autostart.bat` | 配置 PM2 开机自启（只需执行一次） |
 
 ---
 
@@ -76,24 +84,27 @@ npm run pm2:start
 
 ### 工作原理
 
-1. `npm run pm2:start` 启动两个进程：`huang-server`（后端 3000）和 `huang-frontend`（前端 5173）
+1. `scripts/start.bat` 或 `npm run pm2:start` 启动两个进程：`huang-server`（后端 3000）和 `huang-frontend`（前端 5173）
 2. `pm2 save` 保存当前运行的进程列表
-3. `pm2-autostart.bat` 在 Windows 启动文件夹生成一个 `.bat` 文件
+3. `scripts/pm2-autostart.bat` 在 Windows 启动文件夹生成 `start-huang-pm2.bat`
 4. 用户登录后 Windows 自动执行该 `.bat`，调用 `pm2 resurrect` 恢复保存的进程
 
 ### 完整步骤
 
 ```bash
-# 1. 安装并启动服务
+# 1. 安装依赖
 npm install
+
+# 2. 启动服务（双击 scripts/start.bat 或运行下面命令）
 npm run pm2:start
 
-# 2. 双击运行 scripts/pm2-autostart.bat
+# 3. 配置开机自启（只需执行一次）
+#    双击运行 scripts/pm2-autostart.bat
 #    - 会执行 pm2 save
 #    - 会在启动文件夹生成 start-huang-pm2.bat
 #    - 看到 [OK] 表示成功
 
-# 3. 重启电脑验证
+# 4. 重启电脑验证
 #    开机后等 5-10 秒，访问 http://localhost:5173
 ```
 
@@ -101,8 +112,8 @@ npm run pm2:start
 
 | 操作 | 命令 |
 |------|------|
-| 启动服务 | `npm run pm2:start` |
-| 停止服务 | `npm run pm2:stop` |
+| 启动服务 | `npm run pm2:start` 或双击 `scripts/start.bat` |
+| 停止服务 | `npm run pm2:stop` 或双击 `scripts/stop.bat` |
 | 重启服务 | `npm run pm2:restart` |
 | 查看状态 | `npm run pm2:status` |
 | 查看日志 | `npm run pm2:logs` |
@@ -113,7 +124,7 @@ npm run pm2:start
 ### 取消开机自启
 
 1. 删除启动文件夹里的 `start-huang-pm2.bat` 文件（路径：`%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\`）
-2. 运行 `npm run pm2:delete` 删除 PM2 进程
+2. 运行 `npm run pm2:delete` 或双击 `scripts/stop.bat` 删除 PM2 进程
 
 ---
 
@@ -140,18 +151,20 @@ Mac/Linux 在 `~/.huangxiaoshuai/data/`。
 | 操作 | 命令 |
 |------|------|
 | Git Clone 方式安装 | `git clone ... && cd ... && npm install` |
-| 手动模式启动 | `npm start` |
-| PM2 模式启动 | `npm run pm2:start` |
+| 启动服务 | 双击 `scripts/start.bat` 或 `npm run pm2:start` |
+| 停止服务 | 双击 `scripts/stop.bat` 或 `npm run pm2:stop` |
 | 配置开机自启 | 双击 `scripts/pm2-autostart.bat` |
-| 停止服务 | `npm run pm2:stop` 或双击 `scripts/stop.bat` |
+| 重启服务 | `npm run pm2:restart` |
+| 查看状态 | `npm run pm2:status` |
+| 查看日志 | `npm run pm2:logs` |
 | 构建前端 | `npm run build` |
 
 ---
 
 ## 常见问题
 
-**Q: start.bat / PM2 提示"端口 3000/5173 已被占用"**
-A: 先 `npm run pm2:stop` 或双击 `scripts/stop.bat` 停止现有服务。
+**Q: start.bat 提示"端口 3000/5173 已被占用"**
+A: 先双击 `scripts/stop.bat` 停止现有服务，再重新运行 `scripts/start.bat`。
 
 **Q: Node 版本低于 22.5**
 A: 升级 Node.js 到 22.5+。node:sqlite 是 Node.js 内置实验性模块，旧版本不支持。

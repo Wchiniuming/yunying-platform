@@ -200,10 +200,13 @@
           </template>
         </el-table-column>
 
-        <el-table-column label="操作" width="100" fixed="right" align="center">
+        <el-table-column label="操作" width="180" fixed="right" align="center">
           <template #default="{ row }">
             <el-button type="primary" link size="small" class="btn-ghost-link" @click.stop="goToDetail(row)">
               查看详情
+            </el-button>
+            <el-button type="danger" link size="small" class="btn-ghost-link" @click.stop="handleDelete(row)">
+              删除
             </el-button>
           </template>
         </el-table-column>
@@ -227,7 +230,7 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search } from '@element-plus/icons-vue'
 import dayjs from 'dayjs'
 import api from '@/api'
@@ -390,6 +393,25 @@ const handleRowClick = (row) => {
 
 const goToDetail = (row) => {
   router.push(`/orders/${row.id}`)
+}
+
+const handleDelete = async (row) => {
+  try {
+    await ElMessageBox.confirm(`确定删除订单"${row.order_no}"？`, '删除确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const res = await api.order.delete(row.id)
+    if (res.code === 200) {
+      ElMessage.success('已删除')
+      loadOrders()
+    } else {
+      ElMessage.error(res.message || '删除失败')
+    }
+  } catch {
+    ElMessage.error('删除失败')
+  }
 }
 
 onMounted(() => {

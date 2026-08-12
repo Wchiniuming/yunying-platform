@@ -29,6 +29,7 @@ let db
 function initDatabase() {
   try {
     db = new DatabaseSync(dbPath)
+    db.exec('PRAGMA foreign_keys = ON')
     console.log('黄小帅麻辣鸡数据库连接成功')
     initTables()
     return true
@@ -180,6 +181,79 @@ function initTables() {
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT
+    )
+  `)
+
+  // ========== 成本管理 ==========
+
+  // 供应商表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS suppliers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      contact_name TEXT,
+      contact_phone TEXT,
+      address TEXT,
+      notes TEXT,
+      status TEXT DEFAULT 'active',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    )
+  `)
+
+  // 原材料表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS materials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      category TEXT NOT NULL,
+      unit TEXT NOT NULL,
+      current_stock REAL DEFAULT 0,
+      low_stock_threshold REAL DEFAULT 0,
+      default_supplier_id INTEGER,
+      last_purchase_price REAL DEFAULT 0,
+      status TEXT DEFAULT 'active',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (default_supplier_id) REFERENCES suppliers(id)
+    )
+  `)
+
+  // 采购记录表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS procurements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      supplier_id INTEGER NOT NULL,
+      material_id INTEGER NOT NULL,
+      quantity REAL NOT NULL,
+      unit_price REAL NOT NULL,
+      total_amount REAL NOT NULL,
+      purchase_date TEXT NOT NULL,
+      payment_method TEXT DEFAULT '现金',
+      payment_status TEXT DEFAULT 'paid',
+      paid_at TEXT,
+      operator_id INTEGER,
+      notes TEXT,
+      receipt_path TEXT,
+      created_at TEXT DEFAULT (datetime('now')),
+      FOREIGN KEY (supplier_id) REFERENCES suppliers(id),
+      FOREIGN KEY (material_id) REFERENCES materials(id)
+    )
+  `)
+
+  // 非采购类成本记录表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS cost_records (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,
+      category TEXT,
+      amount REAL NOT NULL,
+      record_date TEXT NOT NULL,
+      payment_method TEXT DEFAULT 'cash',
+      description TEXT,
+      operator_id INTEGER,
+      notes TEXT,
+      created_at TEXT DEFAULT (datetime('now'))
     )
   `)
 
@@ -1036,12 +1110,31 @@ app.put('/api/orders/:id/tags', (req, res) => {
   }
 })
 
+app.delete('/api/orders/:id', (req, res) => {
+  try {
+    const id = parseIntSafe(req.params.id, NaN)
+    if (!Number.isFinite(id)) {
+      return res.json(apiResponse(400, null, '无效的订单ID'))
+    }
+    const result = db.prepare('UPDATE orders SET deleted = 1 WHERE id = ? AND deleted = 0').run(id)
+    if (result.changes === 0) {
+      return res.json(apiResponse(404, null, '订单不存在'))
+    }
+    res.json(apiResponse(200, null, '删除成功'))
+  } catch (error) {
+    console.error('删除订单失败:', error)
+    res.json(apiResponse(500, null, '删除失败'))
+  }
+})
+
 // ========== 统计数据 ==========
 
 app.get('/api/stats/dashboard', (req, res) => {
   try {
     const today = new Date().toISOString().slice(0, 10)
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
 
+    // 今日数据
     const todayOrders = db.prepare(`
       SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND date(created_at) = date('now')
     `).get().count
@@ -1071,6 +1164,28 @@ app.get('/api/stats/dashboard', (req, res) => {
 
     const firstOrderRate = todayOrders > 0 ? ((todayFirstOrders / todayOrders) * 100).toFixed(1) : '0.0'
 
+    // 昨日数据（用于对比）
+    const yesterdayOrders = db.prepare(`
+      SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND date(created_at) = ?
+    `).get(yesterday).count
+
+    const yesterdayRevenue = db.prepare(`
+      SELECT COALESCE(SUM(order_total), 0) as total FROM orders
+      WHERE deleted = 0 AND date(created_at) = ? AND status != 'cancelled'
+    `).get(yesterday).total
+
+    const yesterdayAvgOrder = yesterdayOrders > 0 ? (yesterdayRevenue / yesterdayOrders) : 0
+
+    const yesterdayNewCustomers = db.prepare(`
+      SELECT COUNT(*) as count FROM customers WHERE deleted = 0 AND date(created_at) = ?
+    `).get(yesterday).count
+
+    // 计算趋势（今日 vs 昨日）
+    const calcTrend = (today, yesterday) => {
+      if (yesterday === 0) return today > 0 ? 100 : 0
+      return Number((((today - yesterday) / yesterday) * 100).toFixed(1))
+    }
+
     const recentOrders = db.prepare(`
       SELECT id, order_no, wechat_nickname, order_total, status, created_at
       FROM orders WHERE deleted = 0 ORDER BY created_at DESC LIMIT 5
@@ -1085,7 +1200,14 @@ app.get('/api/stats/dashboard', (req, res) => {
       recentOrders,
       todayUnpaidOrders,
       todayFirstOrders,
-      firstOrderRate
+      firstOrderRate,
+      // 趋势数据
+      trends: {
+        orders: calcTrend(todayOrders, yesterdayOrders),
+        revenue: calcTrend(Number(todayRevenue), Number(yesterdayRevenue)),
+        avgOrder: calcTrend(Number(todayAvgOrder), Number(yesterdayAvgOrder)),
+        newCustomers: calcTrend(newCustomers, yesterdayNewCustomers)
+      }
     }))
   } catch (error) {
     console.error('获取统计数据失败:', error)
@@ -1485,7 +1607,68 @@ app.post('/api/data/export', (req, res) => {
       ORDER BY o.created_at DESC
     `).all()
     const dishes = db.prepare('SELECT * FROM dishes ORDER BY sort_order').all()
-    const tags = db.prepare('SELECT * FROM tags').all()
+    const procurements = db.prepare(`
+      SELECT p.*, s.name as supplier_name, m.name as material_name
+      FROM procurements p
+      LEFT JOIN suppliers s ON p.supplier_id = s.id
+      LEFT JOIN materials m ON p.material_id = m.id
+      ORDER BY p.id DESC
+    `).all()
+    const costRecords = db.prepare('SELECT * FROM cost_records ORDER BY id DESC').all()
+
+    // ========== 关键统计数据 ==========
+    const today = new Date().toISOString().slice(0, 10)
+    const weekStart = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10)
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().slice(0, 10)
+
+    const stat = (label, sql) => ({ label, value: db.prepare(sql).get()?.total || db.prepare(sql).get()?.count || 0 })
+
+    const todayOrders = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND date(created_at) = date('now')`).get().count
+    const todayRevenue = Number(db.prepare(`SELECT COALESCE(SUM(order_total), 0) as total FROM orders WHERE deleted = 0 AND date(created_at) = date('now') AND status != 'cancelled'`).get().total || 0)
+    const todayCostProcurement = Number(db.prepare(`SELECT COALESCE(SUM(total_amount), 0) as total FROM procurements WHERE date(purchase_date) = date('now')`).get().total || 0)
+    const todayCostRecords = Number(db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM cost_records WHERE date(record_date) = date('now')`).get().total || 0)
+    const todayTotalCost = todayCostProcurement + todayCostRecords
+    const todayProfit = todayRevenue - todayTotalCost
+    const todayProfitRate = todayRevenue > 0 ? ((todayProfit / todayRevenue) * 100).toFixed(1) : '0.0'
+
+    const weekOrders = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND date(created_at) >= ?`, weekStart).get().count
+    const weekRevenue = Number(db.prepare(`SELECT COALESCE(SUM(order_total), 0) as total FROM orders WHERE deleted = 0 AND date(created_at) >= ? AND status != 'cancelled'`, weekStart).get().total || 0)
+    const weekCostProcurement = Number(db.prepare(`SELECT COALESCE(SUM(total_amount), 0) as total FROM procurements WHERE date(purchase_date) >= ?`, weekStart).get().total || 0)
+    const weekCostRecords = Number(db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM cost_records WHERE date(record_date) >= ?`, weekStart).get().total || 0)
+    const weekTotalCost = weekCostProcurement + weekCostRecords
+    const weekProfit = weekRevenue - weekTotalCost
+    const weekProfitRate = weekRevenue > 0 ? ((weekProfit / weekRevenue) * 100).toFixed(1) : '0.0'
+
+    const monthOrders = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND date(created_at) >= ?`, monthStart).get().count
+    const monthRevenue = Number(db.prepare(`SELECT COALESCE(SUM(order_total), 0) as total FROM orders WHERE deleted = 0 AND date(created_at) >= ? AND status != 'cancelled'`, monthStart).get().total || 0)
+    const monthCostProcurement = Number(db.prepare(`SELECT COALESCE(SUM(total_amount), 0) as total FROM procurements WHERE date(purchase_date) >= ?`, monthStart).get().total || 0)
+    const monthCostRecords = Number(db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM cost_records WHERE date(record_date) >= ?`, monthStart).get().total || 0)
+    const monthTotalCost = monthCostProcurement + monthCostRecords
+    const monthProfit = monthRevenue - monthTotalCost
+    const monthProfitRate = monthRevenue > 0 ? ((monthProfit / monthRevenue) * 100).toFixed(1) : '0.0'
+
+    const totalCustomers = db.prepare(`SELECT COUNT(*) as count FROM customers WHERE deleted = 0`).get().count
+    const totalOrders = db.prepare(`SELECT COUNT(*) as count FROM orders WHERE deleted = 0`).get().count
+    const totalRevenue = Number(db.prepare(`SELECT COALESCE(SUM(order_total), 0) as total FROM orders WHERE deleted = 0 AND status != 'cancelled'`).get().total || 0)
+    const totalCostProcurement = Number(db.prepare(`SELECT COALESCE(SUM(total_amount), 0) as total FROM procurements`).get().total || 0)
+    const totalCostRecords = Number(db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM cost_records`).get().total || 0)
+    const totalCost = totalCostProcurement + totalCostRecords
+    const totalProfit = totalRevenue - totalCost
+    const totalProfitRate = totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(1) : '0.0'
+
+    const statsSheet = [
+      { '指标': '今日订单数', '今日': todayOrders, '本周': weekOrders, '本月': monthOrders, '全部': totalOrders },
+      { '指标': '今日营收', '今日': `¥${todayRevenue.toFixed(2)}`, '本周': `¥${weekRevenue.toFixed(2)}`, '本月': `¥${monthRevenue.toFixed(2)}`, '全部': `¥${totalRevenue.toFixed(2)}` },
+      { '指标': '今日成本', '今日': `¥${todayTotalCost.toFixed(2)}`, '本周': `¥${weekTotalCost.toFixed(2)}`, '本月': `¥${monthTotalCost.toFixed(2)}`, '全部': `¥${totalCost.toFixed(2)}` },
+      { '指标': '今日毛利', '今日': `¥${todayProfit.toFixed(2)}`, '本周': `¥${weekProfit.toFixed(2)}`, '本月': `¥${monthProfit.toFixed(2)}`, '全部': `¥${totalProfit.toFixed(2)}` },
+      { '指标': '毛利率', '今日': `${todayProfitRate}%`, '本周': `${weekProfitRate}%`, '本月': `${monthProfitRate}%`, '全部': `${totalProfitRate}%` },
+      { '指标': '今日客单价', '今日': todayOrders > 0 ? `¥${(todayRevenue / todayOrders).toFixed(2)}` : '¥0.00', '本周': weekOrders > 0 ? `¥${(weekRevenue / weekOrders).toFixed(2)}` : '¥0.00', '本月': monthOrders > 0 ? `¥${(monthRevenue / monthOrders).toFixed(2)}` : '¥0.00', '全部': totalOrders > 0 ? `¥${(totalRevenue / totalOrders).toFixed(2)}` : '¥0.00' },
+      { '指标': '采购成本', '今日': `¥${todayCostProcurement.toFixed(2)}`, '本周': `¥${weekCostProcurement.toFixed(2)}`, '本月': `¥${monthCostProcurement.toFixed(2)}`, '全部': `¥${totalCostProcurement.toFixed(2)}` },
+      { '指标': '其他成本', '今日': `¥${todayCostRecords.toFixed(2)}`, '本周': `¥${weekCostRecords.toFixed(2)}`, '本月': `¥${monthCostRecords.toFixed(2)}`, '全部': `¥${totalCostRecords.toFixed(2)}` },
+      { '指标': '顾客总数', '今日': db.prepare(`SELECT COUNT(*) as count FROM customers WHERE deleted = 0 AND date(created_at) = date('now')`).get().count, '本周': db.prepare(`SELECT COUNT(*) as count FROM customers WHERE deleted = 0 AND date(created_at) >= ?`, weekStart).get().count, '本月': db.prepare(`SELECT COUNT(*) as count FROM customers WHERE deleted = 0 AND date(created_at) >= ?`, monthStart).get().count, '全部': totalCustomers },
+      { '指标': '待处理订单', '今日': db.prepare(`SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND status IN ('pending', 'preparing', 'waiting_pickup')`).get().count, '本周': '-', '本月': '-', '全部': '-' },
+      { '指标': '今日挂账订单', '今日': db.prepare(`SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND date(created_at) = date('now') AND payment_status = 'unpaid'`).get().count, '本周': '-', '本月': '-', '全部': db.prepare(`SELECT COUNT(*) as count FROM orders WHERE deleted = 0 AND payment_status = 'unpaid'`).get().count },
+    ]
 
     const orderStatusText = {
       pending: '待接单', preparing: '制作中', waiting_pickup: '待取餐',
@@ -1554,18 +1737,44 @@ app.post('/api/data/export', (req, res) => {
       '排序': d.sort_order || 0
     }))
 
-    const tagSheet = tags.map(t => ({
-      'ID': t.id,
-      '名称': t.name,
-      '颜色': t.color || '',
-      '排序': t.sort_order || 0
+    const procurementPaymentStatusText = { paid: '已付', unpaid: '挂账' }
+    const procurementSheet = procurements.map(p => ({
+      'ID': p.id,
+      '供应商': p.supplier_name || '',
+      '材料': p.material_name || '',
+      '数量': p.quantity,
+      '单位': '',
+      '单价': p.unit_price,
+      '总价': p.total_amount,
+      '采购日期': p.purchase_date || '',
+      '付款方式': p.payment_method || '',
+      '付款状态': procurementPaymentStatusText[p.payment_status] || p.payment_status || '',
+      '实付时间': p.paid_at || '',
+      '备注': p.notes || '',
+      '创建时间': p.created_at || ''
+    }))
+
+    const costTypeText = { fixed: '固定成本', variable: '变动成本', one_time: '一次性' }
+    const costPaymentMethodText = { cash: '现金', transfer: '转账', other: '其他' }
+    const costSheet = costRecords.map(c => ({
+      'ID': c.id,
+      '类型': costTypeText[c.type] || c.type || '',
+      '分类': c.category || '',
+      '金额': c.amount,
+      '日期': c.record_date || '',
+      '付款方式': costPaymentMethodText[c.payment_method] || c.payment_method || '',
+      '描述': c.description || '',
+      '备注': c.notes || '',
+      '创建时间': c.created_at || ''
     }))
 
     const wb = utils.book_new()
+    utils.book_append_sheet(wb, utils.json_to_sheet(statsSheet), '数据概览')
     utils.book_append_sheet(wb, utils.json_to_sheet(customerSheet), '顾客')
     utils.book_append_sheet(wb, utils.json_to_sheet(flatItems), '订单明细')
     utils.book_append_sheet(wb, utils.json_to_sheet(dishSheet), '商品')
-    utils.book_append_sheet(wb, utils.json_to_sheet(tagSheet), '标签')
+    utils.book_append_sheet(wb, utils.json_to_sheet(procurementSheet), '采购记录')
+    utils.book_append_sheet(wb, utils.json_to_sheet(costSheet), '成本记录')
 
     writeFile(wb, filePath)
 
@@ -1641,6 +1850,640 @@ if (!initDatabase()) {
   console.error('数据库初始化失败，服务器无法启动')
   process.exit(1)
 }
+
+// ========== 成本管理 API ==========
+
+// 供应商列表
+app.get('/api/suppliers', (req, res) => {
+  try {
+    const { keyword = '', status = '' } = req.query
+    let sql = 'SELECT * FROM suppliers WHERE 1=1'
+    const params = []
+    if (keyword) {
+      sql += ' AND (name LIKE ? OR contact_name LIKE ? OR contact_phone LIKE ?)'
+      const kw = `%${keyword}%`
+      params.push(kw, kw, kw)
+    }
+    if (status) {
+      sql += ' AND status = ?'
+      params.push(status)
+    }
+    sql += ' ORDER BY created_at DESC'
+    const list = db.prepare(sql).all(...params)
+    res.json(apiResponse(200, list))
+  } catch (error) {
+    console.error('获取供应商列表失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+// 供应商详情
+app.get('/api/suppliers/:id', (req, res) => {
+  try {
+    const supplier = db.prepare('SELECT * FROM suppliers WHERE id = ?').get(req.params.id)
+    if (!supplier) {
+      return res.json(apiResponse(404, null, '供应商不存在'))
+    }
+    res.json(apiResponse(200, supplier))
+  } catch (error) {
+    console.error('获取供应商详情失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+// 新建供应商
+app.post('/api/suppliers', (req, res) => {
+  try {
+    const { name, contact_name, contact_phone, address, notes, status } = req.body
+    if (!name || !String(name).trim()) {
+      return res.json(apiResponse(400, null, '供应商名称不能为空'))
+    }
+    const result = db.prepare(`
+      INSERT INTO suppliers (name, contact_name, contact_phone, address, notes, status)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(
+      String(name).trim(),
+      contact_name || '',
+      contact_phone || '',
+      address || '',
+      notes || '',
+      status || 'active'
+    )
+    res.json(apiResponse(200, { id: result.lastInsertRowid }, '添加成功'))
+  } catch (error) {
+    console.error('添加供应商失败:', error)
+    res.json(apiResponse(500, null, '添加失败'))
+  }
+})
+
+// 更新供应商
+app.put('/api/suppliers/:id', (req, res) => {
+  try {
+    const { name, contact_name, contact_phone, address, notes, status } = req.body
+    if (!name || !String(name).trim()) {
+      return res.json(apiResponse(400, null, '供应商名称不能为空'))
+    }
+    const existing = db.prepare('SELECT id FROM suppliers WHERE id = ?').get(req.params.id)
+    if (!existing) {
+      return res.json(apiResponse(404, null, '供应商不存在'))
+    }
+    db.prepare(`
+      UPDATE suppliers SET name = ?, contact_name = ?, contact_phone = ?, address = ?, notes = ?, status = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      String(name).trim(),
+      contact_name || '',
+      contact_phone || '',
+      address || '',
+      notes || '',
+      status || 'active',
+      req.params.id
+    )
+    res.json(apiResponse(200, null, '更新成功'))
+  } catch (error) {
+    console.error('更新供应商失败:', error)
+    res.json(apiResponse(500, null, '更新失败'))
+  }
+})
+
+// 删除供应商
+app.delete('/api/suppliers/:id', (req, res) => {
+  try {
+    const usageCount = db.prepare('SELECT COUNT(*) as count FROM procurements WHERE supplier_id = ?').get(req.params.id).count
+    if (usageCount > 0) {
+      return res.json(apiResponse(409, null, `该供应商有 ${usageCount} 条采购记录，无法删除`))
+    }
+    const result = db.prepare('DELETE FROM suppliers WHERE id = ?').run(req.params.id)
+    if (result.changes === 0) {
+      return res.json(apiResponse(404, null, '供应商不存在'))
+    }
+    res.json(apiResponse(200, null, '删除成功'))
+  } catch (error) {
+    console.error('删除供应商失败:', error)
+    res.json(apiResponse(500, null, '删除失败'))
+  }
+})
+
+// 原材料列表
+app.get('/api/materials', (req, res) => {
+  try {
+    const { keyword = '', category = '', status = '', low_stock = '' } = req.query
+    let sql = 'SELECT * FROM materials WHERE 1=1'
+    const params = []
+    if (keyword) {
+      sql += ' AND name LIKE ?'
+      params.push(`%${keyword}%`)
+    }
+    if (category) {
+      sql += ' AND category = ?'
+      params.push(category)
+    }
+    if (status) {
+      sql += ' AND status = ?'
+      params.push(status)
+    }
+    sql += ' ORDER BY category, name'
+    let list = db.prepare(sql).all(...params)
+    if (low_stock === '1') {
+      list = list.filter(m => m.current_stock <= m.low_stock_threshold)
+    }
+    res.json(apiResponse(200, list))
+  } catch (error) {
+    console.error('获取原材料列表失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+// 原材料详情
+app.get('/api/materials/:id', (req, res) => {
+  try {
+    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(req.params.id)
+    if (!material) {
+      return res.json(apiResponse(404, null, '原材料不存在'))
+    }
+    res.json(apiResponse(200, material))
+  } catch (error) {
+    console.error('获取原材料详情失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+// 新建原材料
+app.post('/api/materials', (req, res) => {
+  try {
+    const { name, category, unit, current_stock, low_stock_threshold, default_supplier_id, last_purchase_price, status } = req.body
+    if (!name || !String(name).trim()) {
+      return res.json(apiResponse(400, null, '原材料名称不能为空'))
+    }
+    if (!category) return res.json(apiResponse(400, null, '分类不能为空'))
+    if (!unit) return res.json(apiResponse(400, null, '单位不能为空'))
+    const result = db.prepare(`
+      INSERT INTO materials (name, category, unit, current_stock, low_stock_threshold, default_supplier_id, last_purchase_price, status)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      String(name).trim(),
+      category,
+      unit,
+      Number(current_stock) || 0,
+      Number(low_stock_threshold) || 0,
+      default_supplier_id || null,
+      Number(last_purchase_price) || 0,
+      status || 'active'
+    )
+    res.json(apiResponse(200, { id: result.lastInsertRowid }, '添加成功'))
+  } catch (error) {
+    console.error('添加原材料失败:', error)
+    res.json(apiResponse(500, null, '添加失败'))
+  }
+})
+
+// 更新原材料
+app.put('/api/materials/:id', (req, res) => {
+  try {
+    const { name, category, unit, low_stock_threshold, default_supplier_id, status } = req.body
+    if (!name || !String(name).trim()) return res.json(apiResponse(400, null, '原材料名称不能为空'))
+    if (!category) return res.json(apiResponse(400, null, '分类不能为空'))
+    if (!unit) return res.json(apiResponse(400, null, '单位不能为空'))
+    const existing = db.prepare('SELECT id FROM materials WHERE id = ?').get(req.params.id)
+    if (!existing) return res.json(apiResponse(404, null, '原材料不存在'))
+    db.prepare(`
+      UPDATE materials SET name = ?, category = ?, unit = ?, low_stock_threshold = ?, default_supplier_id = ?, status = ?, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(
+      String(name).trim(),
+      category,
+      unit,
+      Number(low_stock_threshold) || 0,
+      default_supplier_id || null,
+      status || 'active',
+      req.params.id
+    )
+    res.json(apiResponse(200, null, '更新成功'))
+  } catch (error) {
+    console.error('更新原材料失败:', error)
+    res.json(apiResponse(500, null, '更新失败'))
+  }
+})
+
+// 删除原材料
+app.delete('/api/materials/:id', (req, res) => {
+  try {
+    const usageCount = db.prepare('SELECT COUNT(*) as count FROM procurements WHERE material_id = ?').get(req.params.id).count
+    if (usageCount > 0) {
+      return res.json(apiResponse(409, null, `该原材料有 ${usageCount} 条采购记录，无法删除`))
+    }
+    const result = db.prepare('DELETE FROM materials WHERE id = ?').run(req.params.id)
+    if (result.changes === 0) return res.json(apiResponse(404, null, '原材料不存在'))
+    res.json(apiResponse(200, null, '删除成功'))
+  } catch (error) {
+    console.error('删除原材料失败:', error)
+    res.json(apiResponse(500, null, '删除失败'))
+  }
+})
+
+// 手动调整库存
+app.post('/api/materials/:id/adjust-stock', (req, res) => {
+  try {
+    const { delta, reason } = req.body
+    const d = Number(delta)
+    if (!Number.isFinite(d)) return res.json(apiResponse(400, null, 'delta 必须是数字'))
+    const material = db.prepare('SELECT * FROM materials WHERE id = ?').get(req.params.id)
+    if (!material) return res.json(apiResponse(404, null, '原材料不存在'))
+    const newStock = Number(material.current_stock) + d
+    if (newStock < 0) return res.json(apiResponse(400, null, '调整后库存不能为负'))
+    db.prepare('UPDATE materials SET current_stock = ?, updated_at = datetime(\'now\') WHERE id = ?').run(newStock, req.params.id)
+    res.json(apiResponse(200, { id: Number(req.params.id), old_stock: material.current_stock, new_stock: newStock, reason: reason || '' }, '库存已调整'))
+  } catch (error) {
+    console.error('调整库存失败:', error)
+    res.json(apiResponse(500, null, '调整失败'))
+  }
+})
+
+// 采购记录列表
+app.get('/api/procurements', (req, res) => {
+  try {
+    const { keyword = '', supplier_id = '', material_id = '', start_date = '', end_date = '', page = 1, pageSize = 50 } = req.query
+    let sql = `
+      SELECT p.*, s.name AS supplier_name, m.name AS material_name, m.unit AS material_unit
+      FROM procurements p
+      LEFT JOIN suppliers s ON s.id = p.supplier_id
+      LEFT JOIN materials m ON m.id = p.material_id
+      WHERE 1=1
+    `
+    const params = []
+    if (supplier_id) { sql += ' AND p.supplier_id = ?'; params.push(supplier_id) }
+    if (material_id) { sql += ' AND p.material_id = ?'; params.push(material_id) }
+    if (start_date) { sql += ' AND p.purchase_date >= ?'; params.push(start_date) }
+    if (end_date) { sql += ' AND p.purchase_date <= ?'; params.push(end_date) }
+    if (keyword) {
+      sql += ' AND (s.name LIKE ? OR m.name LIKE ? OR p.notes LIKE ?)'
+      const kw = `%${keyword}%`
+      params.push(kw, kw, kw)
+    }
+    const countSql = sql.replace(/SELECT p\.\*,[\s\S]*?FROM procurements p/, 'SELECT COUNT(*) as total FROM procurements p')
+    const total = db.prepare(countSql).get(...params).total
+    sql += ' ORDER BY p.purchase_date DESC, p.id DESC LIMIT ? OFFSET ?'
+    const limit = Number(pageSize) || 50
+    const offset = (Math.max(1, Number(page)) - 1) * limit
+    params.push(limit, offset)
+    const list = db.prepare(sql).all(...params)
+    res.json(apiResponse(200, { list, total, page: Number(page), pageSize: limit }))
+  } catch (error) {
+    console.error('获取采购列表失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+// 新建采购记录（自动联动库存）
+app.post('/api/procurements', (req, res) => {
+  try {
+    const { supplier_name, items, purchase_date, payment_method, payment_status, paid_at, notes } = req.body
+    if (!supplier_name?.trim()) return res.json(apiResponse(400, null, '请输入供应商名称'))
+    if (!items || items.length === 0) return res.json(apiResponse(400, null, '请至少输入一个原料'))
+    if (!purchase_date) return res.json(apiResponse(400, null, '请选择采购日期'))
+
+    // 查找或创建供应商
+    let supplier = db.prepare('SELECT id FROM suppliers WHERE name = ?').get(supplier_name.trim())
+    if (!supplier) {
+      const ins = db.prepare('INSERT INTO suppliers (name) VALUES (?)').run(supplier_name.trim())
+      supplier = { id: ins.lastInsertRowid }
+    }
+
+    const result = (() => {
+      const insertedIds = []
+      db.exec('BEGIN TRANSACTION')
+      try {
+        for (const item of items) {
+          const { material_name, unit, quantity, unit_price } = item
+          if (!material_name?.trim()) continue
+          const q = Number(quantity)
+          const p = Number(unit_price)
+          if (!Number.isFinite(q) || q <= 0) continue
+          if (!Number.isFinite(p) || p < 0) continue
+          const subtotal = Number((q * p).toFixed(2))
+
+          // 查找或创建物料
+          let material = db.prepare('SELECT id, current_stock FROM materials WHERE name = ?').get(material_name.trim())
+          if (!material) {
+            const ins = db.prepare('INSERT INTO materials (name, category, unit) VALUES (?, ?, ?)').run(material_name.trim(), '未分类', unit || '份')
+            material = { id: ins.lastInsertRowid, current_stock: 0 }
+          }
+
+          const ins = db.prepare(`
+            INSERT INTO procurements (supplier_id, material_id, quantity, unit_price, total_amount, purchase_date, payment_method, payment_status, paid_at, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(supplier.id, material.id, q, p, subtotal, purchase_date, payment_method || '现金', payment_status || 'paid', payment_status === 'paid' ? (paid_at || purchase_date) : null, notes || '')
+
+          db.prepare('UPDATE materials SET current_stock = current_stock + ?, last_purchase_price = ?, updated_at = datetime(\'now\') WHERE id = ?').run(q, p, material.id)
+          insertedIds.push(ins.lastInsertRowid)
+        }
+        db.exec('COMMIT')
+        return insertedIds
+      } catch (err) {
+        db.exec('ROLLBACK')
+        throw err
+      }
+    })()
+
+    if (result.length === 0) return res.json(apiResponse(400, null, '没有有效的采购物料'))
+    res.json(apiResponse(200, { ids: result }, `采购已登记，库存已更新（${result.length} 条）`))
+  } catch (error) {
+    console.error('新建采购失败:', error)
+    res.json(apiResponse(500, null, '新建失败'))
+  }
+})
+
+// 更新采购记录（联动库存修正）
+app.put('/api/procurements/:id', (req, res) => {
+  try {
+    const { supplier_name, items, purchase_date, payment_method, payment_status, paid_at, notes } = req.body
+    if (!supplier_name?.trim()) return res.json(apiResponse(400, null, '请输入供应商名称'))
+    if (!items || items.length === 0) return res.json(apiResponse(400, null, '请输入物料'))
+    const item = items[0]
+    const { material_name, unit, quantity, unit_price } = item
+    if (!material_name?.trim()) return res.json(apiResponse(400, null, '请输入物料名称'))
+    const q = Number(quantity)
+    const p = Number(unit_price)
+    if (!Number.isFinite(q) || q <= 0) return res.json(apiResponse(400, null, '数量必须大于 0'))
+    if (!Number.isFinite(p) || p < 0) return res.json(apiResponse(400, null, '单价必须为非负数'))
+    const old = db.prepare('SELECT * FROM procurements WHERE id = ?').get(req.params.id)
+    if (!old) return res.json(apiResponse(404, null, '采购记录不存在'))
+
+    let supplier = db.prepare('SELECT id FROM suppliers WHERE name = ?').get(supplier_name.trim())
+    if (!supplier) {
+      const ins = db.prepare('INSERT INTO suppliers (name) VALUES (?)').run(supplier_name.trim())
+      supplier = { id: ins.lastInsertRowid }
+    }
+
+    let material = db.prepare('SELECT id, current_stock FROM materials WHERE name = ?').get(material_name.trim())
+    if (!material) {
+      const ins = db.prepare('INSERT INTO materials (name, category, unit) VALUES (?, ?, ?)').run(material_name.trim(), '未分类', unit || '份')
+      material = { id: ins.lastInsertRowid, current_stock: 0 }
+    }
+
+    const newTotal = Number((q * p).toFixed(2))
+    db.exec('BEGIN TRANSACTION')
+    try {
+      if (old.material_id !== material.id || old.quantity !== q) {
+        db.prepare('UPDATE materials SET current_stock = current_stock - ? WHERE id = ?').run(old.quantity, old.material_id)
+        db.prepare('UPDATE materials SET current_stock = current_stock + ?, last_purchase_price = ?, updated_at = datetime(\'now\') WHERE id = ?').run(q, p, material.id)
+      } else {
+        db.prepare('UPDATE materials SET last_purchase_price = ?, updated_at = datetime(\'now\') WHERE id = ?').run(p, material.id)
+      }
+      db.prepare(`
+        UPDATE procurements SET supplier_id = ?, material_id = ?, quantity = ?, unit_price = ?, total_amount = ?, purchase_date = ?, payment_method = ?, payment_status = ?, paid_at = ?, notes = ?
+        WHERE id = ?
+      `).run(supplier.id, material.id, q, p, newTotal, purchase_date, payment_method || '现金', payment_status || 'paid', payment_status === 'paid' ? (paid_at || purchase_date) : null, notes || '', req.params.id)
+      db.exec('COMMIT')
+    } catch (err) {
+      db.exec('ROLLBACK')
+      throw err
+    }
+    res.json(apiResponse(200, null, '更新成功，库存已修正'))
+  } catch (error) {
+    console.error('更新采购失败:', error)
+    res.json(apiResponse(500, null, '更新失败'))
+  }
+})
+
+// 删除采购记录（库存反向扣减）
+app.delete('/api/procurements/:id', (req, res) => {
+  try {
+    const old = db.prepare('SELECT * FROM procurements WHERE id = ?').get(req.params.id)
+    if (!old) return res.json(apiResponse(404, null, '采购记录不存在'))
+    db.exec('BEGIN TRANSACTION')
+    try {
+      db.prepare('UPDATE materials SET current_stock = current_stock - ? WHERE id = ?').run(old.quantity, old.material_id)
+      db.prepare('DELETE FROM procurements WHERE id = ?').run(req.params.id)
+      db.exec('COMMIT')
+    } catch (err) {
+      db.exec('ROLLBACK')
+      throw err
+    }
+    res.json(apiResponse(200, null, '已删除，库存已回退'))
+  } catch (error) {
+    console.error('删除采购失败:', error)
+    res.json(apiResponse(500, null, '删除失败'))
+  }
+})
+
+// Excel 批量导入采购记录
+app.post('/api/procurements/import', (req, res) => {
+  try {
+    const { rows } = req.body
+    if (!Array.isArray(rows) || rows.length === 0) return res.json(apiResponse(400, null, '没有数据'))
+    if (rows.length > 500) return res.json(apiResponse(400, null, '单次最多导入 500 行'))
+    const errors = []
+    let imported = 0
+    db.exec('BEGIN TRANSACTION')
+    try {
+      rows.forEach((row, idx) => {
+        try {
+          const supplierName = String(row.supplier_name || '').trim()
+          const materialName = String(row.material_name || '').trim()
+          const q = Number(row.quantity)
+          const p = Number(row.unit_price)
+          if (!supplierName || !materialName || !Number.isFinite(q) || !Number.isFinite(p)) {
+            errors.push({ row: idx + 1, reason: '必填字段缺失或非数字' })
+            return
+          }
+          let supplier = db.prepare('SELECT id FROM suppliers WHERE name = ?').get(supplierName)
+          if (!supplier) {
+            const r = db.prepare('INSERT INTO suppliers (name) VALUES (?)').run(supplierName)
+            supplier = { id: r.lastInsertRowid }
+          }
+          let material = db.prepare('SELECT id, unit FROM materials WHERE name = ?').get(materialName)
+          if (!material) {
+            const r = db.prepare('INSERT INTO materials (name, category, unit) VALUES (?, ?, ?)').run(materialName, row.category || '其他', row.unit || '斤')
+            material = { id: r.lastInsertRowid, unit: row.unit || '斤' }
+          }
+          const total = Number((q * p).toFixed(2))
+          db.prepare(`
+            INSERT INTO procurements (supplier_id, material_id, quantity, unit_price, total_amount, purchase_date, payment_method, payment_status, notes)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `).run(supplier.id, material.id, q, p, total, row.purchase_date || new Date().toISOString().slice(0, 10), row.payment_method || '现金', row.payment_status || 'paid', row.notes || '')
+          db.prepare('UPDATE materials SET current_stock = current_stock + ?, last_purchase_price = ? WHERE id = ?').run(q, p, material.id)
+          imported++
+        } catch (e) {
+          errors.push({ row: idx + 1, reason: e.message })
+        }
+      })
+      db.exec('COMMIT')
+    } catch (err) {
+      db.exec('ROLLBACK')
+      throw err
+    }
+    res.json(apiResponse(200, { imported, errors, total: rows.length }, `导入完成：${imported}/${rows.length}`))
+  } catch (error) {
+    console.error('Excel 导入失败:', error)
+    res.json(apiResponse(500, null, '导入失败'))
+  }
+})
+
+// 成本记录列表
+app.get('/api/cost-records', (req, res) => {
+  try {
+    const { type = '', start_date = '', end_date = '' } = req.query
+    let sql = 'SELECT * FROM cost_records WHERE 1=1'
+    const params = []
+    if (type) { sql += ' AND type = ?'; params.push(type) }
+    if (start_date) { sql += ' AND record_date >= ?'; params.push(start_date) }
+    if (end_date) { sql += ' AND record_date <= ?'; params.push(end_date) }
+    sql += ' ORDER BY record_date DESC, id DESC'
+    const list = db.prepare(sql).all(...params)
+    res.json(apiResponse(200, list))
+  } catch (error) {
+    console.error('获取成本记录失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
+
+// 新建成本记录
+app.post('/api/cost-records', (req, res) => {
+  try {
+    const { type, amount, record_date, payment_method, description } = req.body
+    if (!type) return res.json(apiResponse(400, null, '请选择成本类型'))
+    const a = Number(amount)
+    if (!Number.isFinite(a) || a <= 0) return res.json(apiResponse(400, null, '金额必须大于 0'))
+    if (!record_date) return res.json(apiResponse(400, null, '请选择日期'))
+    const result = db.prepare(`
+      INSERT INTO cost_records (type, amount, record_date, payment_method, description)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(type, a, record_date, payment_method || '现金', description || '')
+    res.json(apiResponse(200, { id: result.lastInsertRowid }, '添加成功'))
+  } catch (error) {
+    console.error('添加成本记录失败:', error)
+    res.json(apiResponse(500, null, '添加失败'))
+  }
+})
+
+// 更新成本记录
+app.put('/api/cost-records/:id', (req, res) => {
+  try {
+    const { type, amount, record_date, payment_method, description } = req.body
+    const a = Number(amount)
+    if (!Number.isFinite(a) || a <= 0) return res.json(apiResponse(400, null, '金额必须大于 0'))
+    const existing = db.prepare('SELECT id FROM cost_records WHERE id = ?').get(req.params.id)
+    if (!existing) return res.json(apiResponse(404, null, '记录不存在'))
+    db.prepare(`
+      UPDATE cost_records SET type = ?, amount = ?, record_date = ?, payment_method = ?, description = ?
+      WHERE id = ?
+    `).run(type, a, record_date, payment_method || '现金', description || '', req.params.id)
+    res.json(apiResponse(200, null, '更新成功'))
+  } catch (error) {
+    console.error('更新成本记录失败:', error)
+    res.json(apiResponse(500, null, '更新失败'))
+  }
+})
+
+// 删除成本记录
+app.delete('/api/cost-records/:id', (req, res) => {
+  try {
+    const result = db.prepare('DELETE FROM cost_records WHERE id = ?').run(req.params.id)
+    if (result.changes === 0) return res.json(apiResponse(404, null, '记录不存在'))
+    res.json(apiResponse(200, null, '删除成功'))
+  } catch (error) {
+    console.error('删除成本记录失败:', error)
+    res.json(apiResponse(500, null, '删除失败'))
+  }
+})
+
+// 成本统计
+app.get('/api/stats/cost', (req, res) => {
+  try {
+    const range = req.query.range || 'today'
+    let startDate, yesterdayStartDate, endDate
+    const today = new Date().toISOString().slice(0, 10)
+    const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10)
+
+    if (range === 'today') {
+      startDate = today
+      yesterdayStartDate = yesterday
+      endDate = today
+    } else if (range === 'week') {
+      const d = new Date(); d.setDate(d.getDate() - 6)
+      startDate = d.toISOString().slice(0, 10)
+      const yd = new Date(Date.now() - 86400000 * 7)
+      yesterdayStartDate = yd.toISOString().slice(0, 10)
+      endDate = today
+    } else if (range === 'month') {
+      const d = new Date(); d.setDate(d.getDate() - 29)
+      startDate = d.toISOString().slice(0, 10)
+      const yd = new Date(Date.now() - 86400000 * 30)
+      yesterdayStartDate = yd.toISOString().slice(0, 10)
+      endDate = today
+    } else {
+      startDate = '1970-01-01'
+      yesterdayStartDate = '1970-01-01'
+      endDate = today
+    }
+
+    const getCostData = (sDate, eDate) => {
+      const procurementTotal = db.prepare(`SELECT COALESCE(SUM(total_amount), 0) as total FROM procurements WHERE purchase_date >= ? AND purchase_date <= ?`).get(sDate, eDate).total
+      const otherCostTotal = db.prepare(`SELECT COALESCE(SUM(amount), 0) as total FROM cost_records WHERE record_date >= ? AND record_date <= ?`).get(sDate, eDate).total
+      const revenue = db.prepare(`SELECT COALESCE(SUM(order_total), 0) as total FROM orders WHERE deleted = 0 AND status != 'cancelled' AND date(created_at) >= ? AND date(created_at) <= ?`).get(sDate, eDate).total
+      return {
+        procurementTotal: Number(procurementTotal),
+        otherCostTotal: Number(otherCostTotal),
+        totalCost: Number(procurementTotal) + Number(otherCostTotal),
+        revenue: Number(revenue)
+      }
+    }
+
+    const current = getCostData(startDate, endDate)
+    const yesterdayData = getCostData(yesterdayStartDate, endDate)
+
+    const profit = current.revenue - current.totalCost
+    const profitRate = current.revenue > 0 ? Number(((profit / current.revenue) * 100).toFixed(1)) : 0
+
+    const yesterdayProfit = yesterdayData.revenue - yesterdayData.totalCost
+    const yesterdayProfitRate = yesterdayData.revenue > 0 ? Number(((yesterdayProfit / yesterdayData.revenue) * 100).toFixed(1)) : 0
+
+    const calcTrend = (today, yesterdayVal) => {
+      if (yesterdayVal === 0) return today > 0 ? 100 : 0
+      return Number((((today - yesterdayVal) / yesterdayVal) * 100).toFixed(1))
+    }
+
+    const byCategory = db.prepare(`
+      SELECT type as name, SUM(amount) as amount FROM cost_records WHERE record_date >= ? AND record_date <= ? GROUP BY type
+    `).all(startDate, endDate)
+    const categoryMap = {}
+    byCategory.forEach(c => { categoryMap[c.name] = Number(c.amount) })
+    if (current.procurementTotal > 0) {
+      categoryMap.ingredient = (categoryMap.ingredient || 0) + current.procurementTotal
+    }
+    const categoryArr = Object.entries(categoryMap)
+      .filter(([name, amount]) => amount > 0)
+      .map(([name, amount]) => ({ name, amount }))
+
+    const bySupplier = db.prepare(`
+      SELECT s.name, SUM(p.total_amount) as amount FROM procurements p
+      LEFT JOIN suppliers s ON s.id = p.supplier_id
+      WHERE p.purchase_date >= ? AND p.purchase_date <= ?
+      GROUP BY p.supplier_id ORDER BY amount DESC LIMIT 5
+    `).all(startDate, endDate)
+
+    res.json(apiResponse(200, {
+      total_cost: current.totalCost,
+      revenue: current.revenue,
+      profit,
+      profit_rate: profitRate,
+      by_category: categoryArr,
+      by_supplier: bySupplier,
+      range,
+      start_date: startDate,
+      trends: {
+        cost: calcTrend(current.totalCost, yesterdayData.totalCost),
+        revenue: calcTrend(current.revenue, yesterdayData.revenue),
+        profit: calcTrend(profit, yesterdayProfit),
+        profitRate: calcTrend(profitRate, yesterdayProfitRate)
+      }
+    }))
+  } catch (error) {
+    console.error('获取成本统计失败:', error)
+    res.json(apiResponse(500, null, '获取失败'))
+  }
+})
 
 app.listen(PORT, () => {
   console.log(`黄小帅麻辣鸡服务器运行在 http://localhost:${PORT}`)

@@ -1,3 +1,0 @@
-@echo off
-node -e "import('node:sqlite').then(m=>{const{DatabaseSync}=m;const p=(process.env.USERPROFILE||'').replace(/\\/g,'/')+'/AppData/Roaming/data/huangxiaoshuai.db';console.log('Path:',p);const db=new DatabaseSync(p);const tables=db.prepare(\"SELECT name FROM sqlite_master WHERE type='table'\").all();console.log('Tables:',tables.map(t=>t.name).join(', '));const o=db.prepare('SELECT COUNT(*) as c FROM orders').get().c;const c=db.prepare('SELECT COUNT(*) as c FROM customers').get().c;console.log('Orders:',o);console.log('Customers:',c);db.close()}).catch(e=>{console.error('ERROR:',e.message)})"
-pause

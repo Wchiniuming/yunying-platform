@@ -53,6 +53,7 @@ export default {
     create: (data) => api.post('/orders', data),
     update: (id, data) => api.put(`/orders/${id}`, data),
     updateStatus: (id, status, operator) => api.put(`/orders/${id}`, { status, operator }),
+    delete: (id) => api.delete(`/orders/${id}`),
     stats: () => api.get('/orders/stats'),
     getTags: (id) => api.get(`/orders/${id}/tags`),
     updateTags: (id, tag_ids) => {
@@ -92,6 +93,42 @@ export default {
     create: (data) => api.post('/tags', data),
     update: (id, data) => api.put(`/tags/${id}`, data),
     delete: (id) => api.delete(`/tags/${id}`)
+  },
+
+  supplier: {
+    list: (params) => api.get('/suppliers', { params }),
+    get: (id) => api.get(`/suppliers/${id}`),
+    create: (data) => api.post('/suppliers', data),
+    update: (id, data) => api.put(`/suppliers/${id}`, data),
+    delete: (id) => api.delete(`/suppliers/${id}`)
+  },
+
+  material: {
+    list: (params) => api.get('/materials', { params }),
+    get: (id) => api.get(`/materials/${id}`),
+    create: (data) => api.post('/materials', data),
+    update: (id, data) => api.put(`/materials/${id}`, data),
+    delete: (id) => api.delete(`/materials/${id}`),
+    adjustStock: (id, data) => api.post(`/materials/${id}/adjust-stock`, data)
+  },
+
+  procurement: {
+    list: (params) => api.get('/procurements', { params }),
+    create: (data) => api.post('/procurements', data),
+    update: (id, data) => api.put(`/procurements/${id}`, data),
+    delete: (id) => api.delete(`/procurements/${id}`),
+    import: (rows) => api.post('/procurements/import', { rows })
+  },
+
+  costRecord: {
+    list: (params) => api.get('/cost-records', { params }),
+    create: (data) => api.post('/cost-records', data),
+    update: (id, data) => api.put(`/cost-records/${id}`, data),
+    delete: (id) => api.delete(`/cost-records/${id}`)
+  },
+
+  costStats: {
+    summary: (range) => api.get('/stats/cost', { params: { range } })
   },
 
   app: {

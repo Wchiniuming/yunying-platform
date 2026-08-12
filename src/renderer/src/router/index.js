@@ -63,6 +63,31 @@ const routes = [
         path: 'tags',
         name: 'Tags',
         component: () => import('@/views/Tags.vue')
+      },
+      {
+        path: 'cost/procurements',
+        name: 'CostProcurements',
+        component: () => import('@/views/CostProcurements.vue')
+      },
+      {
+        path: 'cost/materials',
+        name: 'CostMaterials',
+        component: () => import('@/views/CostMaterials.vue')
+      },
+      {
+        path: 'cost/suppliers',
+        name: 'CostSuppliers',
+        component: () => import('@/views/CostSuppliers.vue')
+      },
+      {
+        path: 'cost/records',
+        name: 'CostRecords',
+        component: () => import('@/views/CostRecords.vue')
+      },
+      {
+        path: 'cost/analysis',
+        name: 'CostAnalysis',
+        component: () => import('@/views/CostAnalysis.vue')
       }
     ]
   }
